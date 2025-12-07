@@ -735,7 +735,7 @@ export default function ImportOrdersIndex() {
                     autocomplete="off"
                     onChange={handleCustomerChange}
                     style={{
-                      width: "50%",
+                      width: "70%",
                       padding: "0.5rem 0.75rem",
                       borderRadius: "8px",
                       border: "1px solid #8c9196",
