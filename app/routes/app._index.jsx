@@ -1001,7 +1001,7 @@ export default function ImportOrdersIndex() {
                     </s-button>
 
                     <a
-                      href="/app"
+                      href="/"
                       style={{
                         textDecoration: "none",
                         display: "inline-block",
