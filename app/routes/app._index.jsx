@@ -318,7 +318,7 @@ export const action = async ({ request }) => {
           enrichedRows.push({
             ...row,
             exist: false,
-            productName: "* * * * *",
+            productName: "* * * * * * *",
             availableQuantity: 0,
             fulfilledQuantity: 0,
             status: "error",
@@ -335,7 +335,7 @@ export const action = async ({ request }) => {
           enrichedRows.push({
             ...row,
             exist: false,
-            productName: "* * * * *",
+            productName: "* * * * * * *",
             availableQuantity: 0,
             fulfilledQuantity: 0,
             status: "sku_not_found",
@@ -404,7 +404,7 @@ export const action = async ({ request }) => {
         enrichedRows.push({
           ...row,
           exist: false,
-          productName: "* * * * *",
+          productName: "* * * * * * *",
           availableQuantity: 0,
           fulfilledQuantity: 0,
           status: "error",
@@ -880,7 +880,7 @@ export default function ImportOrdersIndex() {
                     }
 
                     const isOddRow = idx % 2 === 0; // 0-based index: 0,2,4... are 1st,3rd,5th rows
-                    const backgroundColor = isOddRow ? "#f7f7f7" : "#ffffff";
+                    const backgroundColor = isOddRow ? "#ffffff" : "#f7f7f7";
 
                     return (
                       <tr
@@ -892,7 +892,7 @@ export default function ImportOrdersIndex() {
                       >
                         <td style={{ textAlign: "left" }}>{row.sku}</td>
                         <td style={{ textAlign: "left" }}>
-                          {row.productName || "* * * * *"}
+                          {row.productName || "* * * * * * *"}
                         </td>
                         <td style={{ textAlign: "left" }}>
                           {row.availableQuantity}
@@ -1030,8 +1030,8 @@ export default function ImportOrdersIndex() {
                     {history.map((item, idx) => {
                       const isOddRow = idx % 2 === 0;
                       const backgroundColor = isOddRow
-                        ? "#f7f7f7"
-                        : "#ffffff";
+                        ? "#ffffff"
+                        : "#f7f7f7";
 
                       return (
                         <tr key={item.id} style={{ backgroundColor }}>
