@@ -1,6 +1,8 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = "761ea3f036dc9feb2d7e23751b3c7a52"
+client_id = "c53d351b759e738d96b777042e2e368f"
+#client_id = "761ea3f036dc9feb2d7e23751b3c7a52"
+
 name = "Import Order"
 application_url = "https://example.com"
 embedded = true
