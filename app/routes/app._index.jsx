@@ -110,7 +110,7 @@ export const loader = async ({ request }) => {
       );
 
       const ocJson = await ocResp.json();
-      console.log("OC customers raw response:", ocJson);
+      //console.log("OC customers raw response:", ocJson);
 
       if (ocJson && ocJson.success) {
         customers = Array.isArray(ocJson.customers)
@@ -118,8 +118,7 @@ export const loader = async ({ request }) => {
           : [];
         console.log("OC customers count:", customers.length);
         console.log(
-          "OC customers sample:",
-          JSON.stringify(customers.slice(0, 3), null, 2),
+          //"OC customers sample:", JSON.stringify(customers.slice(0, 3), null, 2),
         );
       } else {
         console.error(
