@@ -861,9 +861,9 @@ export default function ImportOrdersIndex() {
                   <tr>
                     <th style={{ textAlign: "left" }}>SKU</th>
                     <th style={{ textAlign: "left" }}>Product Name</th>
-                    <th style={{ textAlign: "left" }}>Available Qty</th>
-                    <th style={{ textAlign: "left" }}>Requested Qty</th>
-                    <th style={{ textAlign: "left" }}>Fulfilled Qty</th>
+                    <th style={{ textAlign: "left" }}>Available</th>
+                    <th style={{ textAlign: "left" }}>Requested</th>
+                    <th style={{ textAlign: "left" }}>Fulfilled</th>
                     <th style={{ textAlign: "left" }}>Status</th>
                   </tr>
                 </thead>
@@ -893,7 +893,7 @@ export default function ImportOrdersIndex() {
                       >
                         <td style={{ textAlign: "left" }}>{row.sku}</td>
                         <td style={{ textAlign: "left" }}>
-                          {row.productName || "Product does not exist"}
+                          {row.productName || "* * * * *"}
                         </td>
                         <td style={{ textAlign: "left" }}>
                           {row.availableQuantity}
