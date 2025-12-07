@@ -727,6 +727,7 @@ export default function ImportOrdersIndex() {
                 name="customerName"
                 placeholder="Start typing customer name..."
                 value={customerQuery}
+                autocomplete="off"
                 onChange={handleCustomerChange}
                 style={{
                   width: "50%",
