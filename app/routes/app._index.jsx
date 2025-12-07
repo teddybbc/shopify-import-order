@@ -319,7 +319,7 @@ export const action = async ({ request }) => {
           enrichedRows.push({
             ...row,
             exist: false,
-            productName: "Product does not exist",
+            productName: "* * * * *",
             availableQuantity: 0,
             fulfilledQuantity: 0,
             status: "error",
@@ -336,7 +336,7 @@ export const action = async ({ request }) => {
           enrichedRows.push({
             ...row,
             exist: false,
-            productName: "Product does not exist",
+            productName: "* * * * *",
             availableQuantity: 0,
             fulfilledQuantity: 0,
             status: "sku_not_found",
@@ -405,7 +405,7 @@ export const action = async ({ request }) => {
         enrichedRows.push({
           ...row,
           exist: false,
-          productName: "Product does not exist",
+          productName: "* * * * *",
           availableQuantity: 0,
           fulfilledQuantity: 0,
           status: "error",
