@@ -110,16 +110,12 @@ export const loader = async ({ request }) => {
       );
 
       const ocJson = await ocResp.json();
-      //console.log("OC customers raw response:", ocJson);
 
       if (ocJson && ocJson.success) {
         customers = Array.isArray(ocJson.customers)
           ? ocJson.customers
           : [];
         console.log("OC customers count:", customers.length);
-        console.log(
-          //"OC customers sample:", JSON.stringify(customers.slice(0, 3), null, 2),
-        );
       } else {
         console.error(
           "OC customers error:",
@@ -663,7 +659,7 @@ export default function ImportOrdersIndex() {
   };
 
   return (
-    <div style={{paddingBottom:"30px"}}>
+    <div style={{ paddingBottom: "30px" }}>
       <s-page heading="Import Orders">
         {/* Upload Form */}
         <s-section>
@@ -695,135 +691,183 @@ export default function ImportOrdersIndex() {
             </div>
           )}
 
-          <s-paragraph>
-            Select a customer and upload a CSV/Excel file with{" "}
-            <s-text as="span" emphasis="bold">
-              sku
-            </s-text>{" "}
-            and{" "}
-            <s-text as="span" emphasis="bold">
-              quantity
-            </s-text>
-            .
-          </s-paragraph>
+          {/* Two-column layout: left = form, right = format image */}
+          <div
+            style={{
+              display: "flex",
+              gap: "24px",
+              alignItems: "stretch",
+            }}
+          >
+            {/* LEFT 50%: existing upload form */}
+            <div style={{ flex: "1 1 50%" }}>
+              <s-paragraph>
+                Select a customer and upload a CSV/Excel file with{" "}
+                <s-text as="span" emphasis="bold">
+                  sku
+                </s-text>{" "}
+                and{" "}
+                <s-text as="span" emphasis="bold">
+                  quantity
+                </s-text>
+                .
+              </s-paragraph>
 
-          <Form method="post" encType="multipart/form-data">
-            <input type="hidden" name="intent" value="process" />
+              <Form method="post" encType="multipart/form-data">
+                <input type="hidden" name="intent" value="process" />
 
-            {/* Customer input with soft search (local, from OC) */}
-            <s-box paddingBlockEnd="base">
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: "0.25rem",
-                  fontWeight: 500,
-                }}
-              >
-                Customer
-              </label>
-              <input
-                type="text"
-                name="customerName"
-                placeholder="Start typing customer name..."
-                value={customerQuery}
-                autocomplete="off"
-                onChange={handleCustomerChange}
-                style={{
-                  width: "50%",
-                  padding: "0.5rem 0.75rem",
-                  borderRadius: "8px",
-                  border: "1px solid #8c9196",
-                  fontSize: "14px",
-                  boxSizing: "border-box",
-                }}
-              />
-              {/* Hidden field that actually carries the Shopify customer GID */}
-              <input
-                type="hidden"
-                name="customerId"
-                value={selectedCustomerId}
-              />
+                {/* Customer input with soft search (local, from OC) */}
+                <s-box paddingBlockEnd="base">
+                  <label
+                    style={{
+                      display: "block",
+                      marginBottom: "0.25rem",
+                      fontWeight: 500,
+                    }}
+                  >
+                    Customer
+                  </label>
+                  <input
+                    type="text"
+                    name="customerName"
+                    placeholder="Start typing customer name..."
+                    value={customerQuery}
+                    autocomplete="off"
+                    onChange={handleCustomerChange}
+                    style={{
+                      width: "50%",
+                      padding: "0.5rem 0.75rem",
+                      borderRadius: "8px",
+                      border: "1px solid #8c9196",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  {/* Hidden field that actually carries the Shopify customer GID */}
+                  <input
+                    type="hidden"
+                    name="customerId"
+                    value={selectedCustomerId}
+                  />
 
-              {/* Suggestions dropdown (local search) */}
-              {customerOptions.length > 0 && (
-                <div
-                  style={{
-                    marginTop: "4px",
-                    width: "50%",
-                    border: "1px solid #c9cccf",
-                    borderRadius: "8px",
-                    backgroundColor: "#ffffff",
-                    maxHeight: "220px",
-                    overflowY: "auto",
-                    boxShadow:
-                      "0 4px 8px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.02)",
-                    zIndex: 10,
-                    position: "relative",
-                  }}
-                >
-                  {customerOptions.map((customer) => (
+                  {/* Suggestions dropdown (local search) */}
+                  {customerOptions.length > 0 && (
                     <div
-                      key={customer.id}
-                      onClick={() => handleCustomerSelect(customer)}
                       style={{
-                        padding: "6px 10px",
-                        cursor: "pointer",
-                        borderBottom: "1px solid #f0f1f2",
-                        backgroundColor:
-                          customer.id === selectedCustomerId
-                            ? "#f2f7ff"
-                            : "#ffffff",
+                        marginTop: "4px",
+                        width: "50%",
+                        border: "1px solid #c9cccf",
+                        borderRadius: "8px",
+                        backgroundColor: "#ffffff",
+                        maxHeight: "220px",
+                        overflowY: "auto",
+                        boxShadow:
+                          "0 4px 8px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.02)",
+                        zIndex: 10,
+                        position: "relative",
                       }}
                     >
-                      <div style={{ fontSize: "14px", fontWeight: 500 }}>
-                        {customer.displayName}
-                      </div>
-                      {customer.email && (
+                      {customerOptions.map((customer) => (
                         <div
+                          key={customer.id}
+                          onClick={() => handleCustomerSelect(customer)}
                           style={{
-                            fontSize: "12px",
-                            color: "#6d7175",
-                            marginTop: "2px",
+                            padding: "6px 10px",
+                            cursor: "pointer",
+                            borderBottom: "1px solid #f0f1f2",
+                            backgroundColor:
+                              customer.id === selectedCustomerId
+                                ? "#f2f7ff"
+                                : "#ffffff",
                           }}
                         >
-                          {customer.email}
+                          <div
+                            style={{ fontSize: "14px", fontWeight: 500 }}
+                          >
+                            {customer.displayName}
+                          </div>
+                          {customer.email && (
+                            <div
+                              style={{
+                                fontSize: "12px",
+                                color: "#6d7175",
+                                marginTop: "2px",
+                              }}
+                            >
+                              {customer.email}
+                            </div>
+                          )}
                         </div>
-                      )}
+                      ))}
                     </div>
-                  ))}
-                </div>
-              )}
-            </s-box>
+                  )}
+                </s-box>
 
-            <s-box paddingBlockEnd="base">
-              <label style={{ display: "block", marginBottom: "0.25rem" }}>
-                Import file (CSV or Excel)
-              </label>
-              <input
-                type="file"
-                name="file"
-                ref={fileInputRef}
-                accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
-              />
-            </s-box>
+                <s-box paddingBlockEnd="base">
+                  <label
+                    style={{ display: "block", marginBottom: "0.25rem" }}
+                  >
+                    Import file (CSV or Excel)
+                  </label>
+                  <input
+                    type="file"
+                    name="file"
+                    ref={fileInputRef}
+                    accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
+                  />
+                </s-box>
 
-            <button
-              type="submit"
-              disabled={isSubmitting}
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  style={{
+                    backgroundColor: "#000000",
+                    color: "#ffffff",
+                    border: "none",
+                    borderRadius: "8px",
+                    padding: "0.5rem 1.25rem",
+                    fontSize: "14px",
+                    cursor: isSubmitting ? "default" : "pointer",
+                    opacity: isSubmitting ? 0.7 : 1,
+                  }}
+                >
+                  {isSubmitting ? "Processing..." : "Process file"}
+                </button>
+              </Form>
+            </div>
+
+            {/* RIGHT 50%: "Format" label + centered image */}
+            <div
               style={{
-                backgroundColor: "#000000",
-                color: "#ffffff",
-                border: "none",
-                borderRadius: "8px",
-                padding: "0.5rem 1.25rem",
-                fontSize: "14px",
-                cursor: isSubmitting ? "default" : "pointer",
-                opacity: isSubmitting ? 0.7 : 1,
+                flex: "1 1 50%",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                textAlign: "center",
               }}
             >
-              {isSubmitting ? "Processing..." : "Process file"}
-            </button>
-          </Form>
+              <div
+                style={{
+                  fontWeight: 600,
+                  marginBottom: "8px",
+                  fontSize: "14px",
+                }}
+              >
+                Format
+              </div>
+              <img
+                src="https://bloomconnect.com.au/cdn/shop/t/13/assets/upload_order_csv.png?v=116619409245202095531739495015"
+                alt="CSV upload format example"
+                style={{
+                  width: "160px",
+                  height: "140px",
+                  objectFit: "contain",
+                  display: "block",
+                }}
+              />
+            </div>
+          </div>
         </s-section>
 
         {/* Preview section — shown instead of history while in preview mode */}
@@ -841,8 +885,8 @@ export default function ImportOrdersIndex() {
               Preview
             </h2>
             <s-paragraph>
-              Review the items before creating the order. Only existing SKUs with
-              available inventory will be added.
+              Review the items before creating the order. Only existing SKUs
+              with available inventory will be added.
             </s-paragraph>
 
             <s-box
@@ -869,7 +913,8 @@ export default function ImportOrdersIndex() {
                 <tbody>
                   {actionData.previewRows.map((row, idx) => {
                     const isNotFound =
-                      row.status === "sku_not_found" || row.status === "error";
+                      row.status === "sku_not_found" ||
+                      row.status === "error";
                     const isNoStock = row.status === "no_stock";
 
                     let textColor = "#000000";
@@ -912,7 +957,7 @@ export default function ImportOrdersIndex() {
             </s-box>
 
             {/* Confirmation form: create order + save history */}
-            <div style={{marginTop:"20px"}}>
+            <div style={{ marginTop: "20px" }}>
               <Form method="post">
                 <input type="hidden" name="intent" value="create" />
                 <input
@@ -942,14 +987,23 @@ export default function ImportOrdersIndex() {
                       variant="primary"
                       {...(isSubmitting ? { loading: true } : {})}
                     >
-                      <span style={{display:"inline-block", padding:"3px 5px", fontSize:"14px"}}>
+                      <span
+                        style={{
+                          display: "inline-block",
+                          padding: "3px 5px",
+                          fontSize: "14px",
+                        }}
+                      >
                         Confirm create order
                       </span>
                     </s-button>
 
                     <a
                       href="/app"
-                      style={{ textDecoration: "none", display: "inline-block" }}
+                      style={{
+                        textDecoration: "none",
+                        display: "inline-block",
+                      }}
                     >
                       <s-button
                         variant="secondary"
@@ -961,9 +1015,15 @@ export default function ImportOrdersIndex() {
                           minHeight: "auto",
                         }}
                       >
-                        <span style={{display:"inline-block", padding:"3px 5px", fontSize:"14px"}}>
-                        Cancel
-                      </span>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "3px 5px",
+                            fontSize: "14px",
+                          }}
+                        >
+                          Cancel
+                        </span>
                       </s-button>
                     </a>
                   </s-stack>
@@ -1000,7 +1060,8 @@ export default function ImportOrdersIndex() {
                   borderRadius: "6px",
                 }}
               >
-                The draft order {createdOrderName} has been successfully created.
+                The draft order {createdOrderName} has been successfully
+                created.
               </div>
             )}
 
@@ -1077,10 +1138,13 @@ export default function ImportOrdersIndex() {
                             {item.totalQuantity}
                           </td>
                           <td style={{ textAlign: "left" }}>
-                            {new Date(item.createdAt).toLocaleString("en-AU", {
-                              dateStyle: "medium",
-                              timeStyle: "short",
-                            })}
+                            {new Date(item.createdAt).toLocaleString(
+                              "en-AU",
+                              {
+                                dateStyle: "medium",
+                                timeStyle: "short",
+                              },
+                            )}
                           </td>
                         </tr>
                       );
