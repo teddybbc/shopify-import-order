@@ -879,7 +879,7 @@ export default function ImportOrdersIndex() {
                   fontSize: "14px",
                 }}
               >
-                Format
+                Excel Format
               </div>
               <img
                 src="https://bloomconnect.com.au/cdn/shop/t/13/assets/upload_order_csv.png?v=116619409245202095531739495015"
