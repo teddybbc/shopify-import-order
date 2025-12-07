@@ -4,7 +4,7 @@ client_id = "c53d351b759e738d96b777042e2e368f"
 #client_id = "761ea3f036dc9feb2d7e23751b3c7a52"
 
 name = "Import Order"
-application_url = "https://example.com"
+application_url = "https://jellyfish-app-oopfb.ondigitalocean.app"
 embedded = true
 
 [build]
@@ -27,4 +27,4 @@ api_version = "2026-01"
 scopes = "read_products,read_inventory,read_customers,write_draft_orders,read_draft_orders,read_discounts,write_discounts"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://jellyfish-app-oopfb.ondigitalocean.app/api/auth" ]
