@@ -334,7 +334,7 @@ export const action = async ({ request }) => {
             productName: "* * * * * * *",
             availableQuantity: 0,
             fulfilledQuantity: 0,
-            status: "sku_not_found",
+            status: "sku not found",
             variantId: null,
           });
           continue;
@@ -377,7 +377,7 @@ export const action = async ({ request }) => {
 
         if (totalAvailable <= 0) {
           fulfilledQuantity = 0;
-          status = "no_stock";
+          status = "no stock";
         } else if (row.quantityRequested > totalAvailable) {
           fulfilledQuantity = totalAvailable;
           status = "partial";
@@ -612,7 +612,10 @@ export default function ImportOrdersIndex() {
   );
   const [customerOptions, setCustomerOptions] = useState([]);
 
-  // File input ref so we can clear it on success
+  // Local override to hide preview after Cancel
+  const [previewCancelled, setPreviewCancelled] = useState(false);
+
+  // File input ref so we can clear it on success / cancel
   const fileInputRef = useRef(null);
 
   // ✅ Clear customer + file after successful draft order creation
@@ -626,6 +629,11 @@ export default function ImportOrdersIndex() {
       }
     }
   }, [hasSuccess]);
+
+  // ✅ Whenever actionData changes (new preview / error), reset previewCancelled
+  useEffect(() => {
+    setPreviewCancelled(false);
+  }, [actionData]);
 
   const handleCustomerChange = (event) => {
     const value = event.target.value;
@@ -657,6 +665,21 @@ export default function ImportOrdersIndex() {
     setCustomerQuery(customer.displayName || "");
     setCustomerOptions([]);
   };
+
+  // 🔹 Cancel in Preview: hide preview, show history, clear inputs + file
+  const handleCancelPreview = () => {
+    setPreviewCancelled(true);
+    setCustomerQuery("");
+    setSelectedCustomerId("");
+    setCustomerOptions([]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  // Derived flags for rendering
+  const showPreview = inPreviewMode && !previewCancelled;
+  const showHistory = !inPreviewMode || previewCancelled;
 
   return (
     <div style={{ paddingBottom: "30px" }}>
@@ -697,7 +720,7 @@ export default function ImportOrdersIndex() {
               display: "flex",
               gap: "24px",
               alignItems: "stretch",
-              paddingBottom: "10px"
+              paddingBottom: "10px",
             }}
           >
             {/* LEFT 50%: existing upload form */}
@@ -724,7 +747,7 @@ export default function ImportOrdersIndex() {
                       display: "block",
                       marginBottom: "0.25rem",
                       fontWeight: 500,
-                      marginTop: "15px"
+                      marginTop: "15px",
                     }}
                   >
                     Customer
@@ -873,7 +896,7 @@ export default function ImportOrdersIndex() {
         </s-section>
 
         {/* Preview section — shown instead of history while in preview mode */}
-        {inPreviewMode && (
+        {showPreview && (
           <s-section>
             <h2
               style={{
@@ -915,9 +938,9 @@ export default function ImportOrdersIndex() {
                 <tbody>
                   {actionData.previewRows.map((row, idx) => {
                     const isNotFound =
-                      row.status === "sku_not_found" ||
+                      row.status === "sku not found" ||
                       row.status === "error";
-                    const isNoStock = row.status === "no_stock";
+                    const isNoStock = row.status === "no stock";
 
                     let textColor = "#000000";
                     if (isNotFound) {
@@ -960,30 +983,33 @@ export default function ImportOrdersIndex() {
 
             {/* Confirmation form: create order + save history */}
             <div style={{ marginTop: "20px" }}>
-              <Form method="post">
-                <input type="hidden" name="intent" value="create" />
-                <input
-                  type="hidden"
-                  name="customerName"
-                  value={actionData.customerName || ""}
-                />
-                <input
-                  type="hidden"
-                  name="customerId"
-                  value={actionData.customerId || ""}
-                />
-                <input
-                  type="hidden"
-                  name="previewJson"
-                  value={JSON.stringify(actionData.previewRows || [])}
-                />
+              <s-box style={{ marginTop: "20px", textAlign: "center" }}>
+                <s-stack
+                  direction="inline"
+                  gap="base"
+                  style={{ justifyContent: "center" }}
+                >
+                  {/* Confirm create order form */}
+                  <Form method="post">
+                    <input type="hidden" name="intent" value="create" />
+                    <input
+                      type="hidden"
+                      name="customerName"
+                      value={actionData.customerName || ""}
+                    />
+                    <input
+                      type="hidden"
+                      name="customerId"
+                      value={actionData.customerId || ""}
+                    />
+                    <input
+                      type="hidden"
+                      name="previewJson"
+                      value={JSON.stringify(
+                        actionData.previewRows || [],
+                      )}
+                    />
 
-                <s-box style={{ marginTop: "20px", textAlign: "center" }}>
-                  <s-stack
-                    direction="inline"
-                    gap="base"
-                    style={{ justifyContent: "center" }}
-                  >
                     <s-button
                       type="submit"
                       variant="primary"
@@ -999,44 +1025,38 @@ export default function ImportOrdersIndex() {
                         Confirm create order
                       </span>
                     </s-button>
+                  </Form>
 
-                    <a
-                      href="/"
+                  {/* Cancel button: just hide preview + clear inputs */}
+                  <s-button
+                    variant="secondary"
+                    onClick={handleCancelPreview}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      color: "#005bd3",
+                      padding: 0,
+                      minHeight: "auto",
+                    }}
+                  >
+                    <span
                       style={{
-                        textDecoration: "none",
                         display: "inline-block",
+                        padding: "3px 5px",
+                        fontSize: "14px",
                       }}
                     >
-                      <s-button
-                        variant="secondary"
-                        style={{
-                          background: "transparent",
-                          border: "none",
-                          color: "#005bd3",
-                          padding: 0,
-                          minHeight: "auto",
-                        }}
-                      >
-                        <span
-                          style={{
-                            display: "inline-block",
-                            padding: "3px 5px",
-                            fontSize: "14px",
-                          }}
-                        >
-                          Cancel
-                        </span>
-                      </s-button>
-                    </a>
-                  </s-stack>
-                </s-box>
-              </Form>
+                      Cancel
+                    </span>
+                  </s-button>
+                </s-stack>
+              </s-box>
             </div>
           </s-section>
         )}
 
-        {/* History section – hidden while in preview mode */}
-        {!inPreviewMode && (
+        {/* History section – hidden while preview is visible */}
+        {showHistory && (
           <s-section>
             <h2
               style={{
