@@ -697,6 +697,7 @@ export default function ImportOrdersIndex() {
               display: "flex",
               gap: "24px",
               alignItems: "stretch",
+              paddingBottom: "10px"
             }}
           >
             {/* LEFT 50%: existing upload form */}
@@ -723,6 +724,7 @@ export default function ImportOrdersIndex() {
                       display: "block",
                       marginBottom: "0.25rem",
                       fontWeight: 500,
+                      marginTop: "15px"
                     }}
                   >
                     Customer
@@ -735,7 +737,7 @@ export default function ImportOrdersIndex() {
                     autocomplete="off"
                     onChange={handleCustomerChange}
                     style={{
-                      width: "70%",
+                      width: "100%",
                       padding: "0.5rem 0.75rem",
                       borderRadius: "8px",
                       border: "1px solid #8c9196",
