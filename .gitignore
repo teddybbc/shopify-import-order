@@ -30,3 +30,5 @@ database.sqlite
 prisma/dev.db
 dist
 .cache
+package-lock.json
+npm-shrinkwrap.json
