@@ -932,7 +932,7 @@ export default function ImportOrdersIndex() {
                     <th style={{ textAlign: "left" }}>Available</th>
                     <th style={{ textAlign: "left" }}>Requested</th>
                     <th style={{ textAlign: "left" }}>Fulfilled</th>
-                    <th style={{ textAlign: "left" }}>Status</th>
+                    <th style={{ textAlign: "left", width:"100px" }}>Status</th>
                   </tr>
                 </thead>
                 <tbody>
