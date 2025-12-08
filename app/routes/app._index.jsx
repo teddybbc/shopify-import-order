@@ -856,7 +856,7 @@ export default function ImportOrdersIndex() {
                     opacity: isSubmitting ? 0.7 : 1,
                   }}
                 >
-                  {isSubmitting ? "Processing..." : "Process file"}
+                  {isSubmitting ? "Uploading..." : "Preview order"}
                 </button>
               </Form>
             </div>
@@ -1022,7 +1022,7 @@ export default function ImportOrdersIndex() {
                           fontSize: "14px",
                         }}
                       >
-                        Confirm create order
+                        Confirm & create order
                       </span>
                     </s-button>
                   </Form>
