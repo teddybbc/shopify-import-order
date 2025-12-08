@@ -946,7 +946,7 @@ export default function ImportOrdersIndex() {
                     if (isNotFound) {
                       textColor = "#ff0000"; // red
                     } else if (isNoStock) {
-                      textColor = "#fcb001";
+                      textColor = "#aaaaaa";
                     }
 
                     const isOddRow = idx % 2 === 0; // 0-based index: 0,2,4... are 1st,3rd,5th rows
