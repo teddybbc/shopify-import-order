@@ -79,9 +79,13 @@ async function getShopNumericId(admin) {
   }
 }
 
+
 /**
  * Helper: fetch B2B company context for a customer (if any).
  * Returns { companyId, companyLocationId, companyContactId } or all null.
+ *
+ * IMPORTANT: This query matches the PHP test that you confirmed works.
+ * It only asks for companyContactProfiles { company { id name } }.
  */
 async function getB2BContext(admin, customerGid) {
   if (!customerGid) {
@@ -102,30 +106,18 @@ async function getB2BContext(admin, customerGid) {
         customer(id: $id) {
           id
           email
-          companyContactProfiles(first: 1) {
+          companyContactProfiles {
             company {
               id
               name
-            }
-            companyLocation {
-              id
-              name
-            }
-            companyContact {
-              id
-              # Names live on the related customer object, but we don't need them here.
-              # customer {
-              #   id
-              #   firstName
-              #   lastName
-              #   email
-              # }
             }
           }
         }
       }
       `,
-      { variables: { id: customerGid } },
+      {
+        variables: { id: customerGid },
+      },
     );
 
     const b2bJson = await b2bResp.json();
@@ -141,9 +133,8 @@ async function getB2BContext(admin, customerGid) {
 
     const profiles =
       b2bJson?.data?.customer?.companyContactProfiles || [];
-    const primaryProfile = profiles[0];
 
-    if (!primaryProfile) {
+    if (!profiles.length) {
       console.log(
         "No companyContactProfiles found for customer (probably DTC or not B2B):",
         customerGid,
@@ -155,11 +146,14 @@ async function getB2BContext(admin, customerGid) {
       };
     }
 
-    const companyId = primaryProfile.company?.id || null;
-    const companyLocationId =
-      primaryProfile.companyLocation?.id || null;
-    const companyContactId =
-      primaryProfile.companyContact?.id || null;
+    const primaryProfile = profiles[0];
+
+    const companyId = primaryProfile?.company?.id || null;
+
+    // We don't currently fetch location/contact from GraphQL,
+    // so keep them as null for now.
+    const companyLocationId = null;
+    const companyContactId = null;
 
     console.log("B2B context for customer:", {
       customerGid,
