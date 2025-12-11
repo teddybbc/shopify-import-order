@@ -845,7 +845,7 @@ export default function ImportOrdersIndex() {
               paddingBottom: "10px",
             }}
           >
-            Bulk Order Upload Ver.2
+            Bulk Order Upload Ver.3
           </h2>
 
           {hasError && (
