@@ -1,4 +1,3 @@
-// app/routes/app._index.jsx
 import * as XLSX from "xlsx";
 import { Buffer } from "node:buffer";
 
@@ -31,10 +30,27 @@ async function getShopNumericId(admin) {
     );
 
     let body;
-    if (typeof resp?.json === "function") {
-      body = await resp.json();
-    } else {
-      body = resp?.body || resp;
+    try {
+      if (typeof resp?.json === "function") {
+        body = await resp.json();
+      } else if (typeof resp?.text === "function") {
+        const txt = await resp.text();
+        try {
+          body = JSON.parse(txt);
+        } catch (e) {
+          console.error("getShopNumericId: failed to parse response text", e, txt);
+          body = null;
+        }
+      } else {
+        body = resp?.body || resp;
+      }
+    } catch (err) {
+      console.error("getShopNumericId: error reading GraphQL response body", err);
+      body = null;
+    }
+
+    if (body?.errors?.length) {
+      console.error("getShopNumericId: GraphQL errors:", body.errors);
     }
 
     const gid = body?.data?.shop?.id || "";
@@ -42,7 +58,12 @@ async function getShopNumericId(admin) {
       ? gid.split("/").pop()
       : gid;
 
-    console.log("Detected Shopify numeric shop_id:", numericId);
+    if (!numericId) {
+      console.error("getShopNumericId: missing shop.id in GraphQL data", body);
+    } else {
+      console.log("Detected Shopify numeric shop_id:", numericId);
+    }
+
     return numericId || null;
   } catch (err) {
     console.error("Failed to fetch shop.id for numeric shop_id", err);
@@ -109,7 +130,20 @@ export const loader = async ({ request }) => {
         },
       );
 
-      const ocJson = await ocResp.json();
+      if (!ocResp.ok) {
+        const txt = await ocResp.text();
+        console.error(
+          "OC getCustomers HTTP error:",
+          ocResp.status,
+          ocResp.statusText,
+          txt,
+        );
+      }
+
+      const ocJson = await ocResp.json().catch((e) => {
+        console.error("OC getCustomers: failed to parse JSON", e);
+        return null;
+      });
 
       if (ocJson && ocJson.success) {
         customers = Array.isArray(ocJson.customers)
@@ -120,6 +154,7 @@ export const loader = async ({ request }) => {
         console.error(
           "OC customers error:",
           ocJson?.error || "Unknown error",
+          ocJson,
         );
       }
     } catch (err) {
@@ -155,6 +190,12 @@ export const action = async ({ request }) => {
     if (missingCustomer || missingFile) {
       let errorMessage =
         "Customer selection and CSV/Excel file are required to import orders.";
+      console.warn("PROCESS validation failed:", {
+        missingCustomer,
+        missingFile,
+        customerName,
+        customerId,
+      });
       return {
         mode: "error",
         error: errorMessage,
@@ -194,6 +235,7 @@ export const action = async ({ request }) => {
     });
 
     if (!rows || rows.length === 0) {
+      console.warn("PROCESS: uploaded file appears empty");
       return {
         mode: "error",
         error: "The file is empty.",
@@ -211,6 +253,7 @@ export const action = async ({ request }) => {
     );
 
     if (skuIndex === -1 || qtyIndex === -1) {
+      console.warn("PROCESS: missing sku/quantity columns in headerRow", headerRow);
       return {
         mode: "error",
         error:
@@ -254,6 +297,7 @@ export const action = async ({ request }) => {
     }
 
     if (parsedRows.length === 0) {
+      console.warn("PROCESS: no valid rows found after parsing");
       return {
         mode: "error",
         error:
@@ -263,6 +307,8 @@ export const action = async ({ request }) => {
         previewRows: [],
       };
     }
+
+    console.log("PROCESS: parsedRows count:", parsedRows.length);
 
     // Enrich each row with Shopify data: variant + inventory
     const enrichedRows = [];
@@ -307,20 +353,8 @@ export const action = async ({ request }) => {
         );
 
         const json = await response.json();
-
-        // If GraphQL returned errors (but client didn't throw), treat as API error
-        if (json.errors && json.errors.length > 0) {
+        if (json?.errors?.length) {
           console.error("GraphQL errors for SKU", sku, json.errors);
-          enrichedRows.push({
-            ...row,
-            exist: false,
-            productName: "* * * * * * *",
-            availableQuantity: 0,
-            fulfilledQuantity: 0,
-            status: "error",
-            variantId: null,
-          });
-          continue;
         }
 
         const edges = json?.data?.productVariants?.edges || [];
@@ -409,6 +443,8 @@ export const action = async ({ request }) => {
       }
     }
 
+    console.log("PROCESS: enrichedRows count:", enrichedRows.length);
+
     return {
       mode: "preview",
       customerName,
@@ -425,6 +461,8 @@ export const action = async ({ request }) => {
     const customerIdRaw = formData.get("customerId") || "";
     const previewJson = formData.get("previewJson");
 
+    console.log("CREATE intent: raw customerId from formData:", customerIdRaw);
+
     // ➜ customerGid = full Shopify GID (needed for GraphQL `customerId`)
     const customerGid = customerIdRaw || "";
 
@@ -433,7 +471,7 @@ export const action = async ({ request }) => {
       ? customerGid.split("/").pop()
       : customerGid;
 
-    // 🔹 NEW: Fetch B2B company context for this customer
+    // 🔹 Fetch B2B company context for this customer (for debugging)
     let companyId = null;
     let companyLocationId = null;
     let companyContactId = null;
@@ -445,19 +483,15 @@ export const action = async ({ request }) => {
           query B2BCustomerContext($id: ID!) {
             customer(id: $id) {
               id
-              b2bCustomer {
+              companyContactProfiles {
+                id
                 company {
                   id
                   name
                 }
-                companyLocation {
+                location {
                   id
                   name
-                }
-                companyContact {
-                  id
-                  firstName
-                  lastName
                 }
               }
             }
@@ -466,29 +500,46 @@ export const action = async ({ request }) => {
           { variables: { id: customerGid } },
         );
 
-        const b2bJson = await b2bResp.json();
-        const b2b = b2bJson?.data?.customer?.b2bCustomer;
-
-        if (b2b) {
-          companyId = b2b.company?.id || null;
-          companyLocationId = b2b.companyLocation?.id || null;
-          companyContactId = b2b.companyContact?.id || null;
-
-          console.log("B2B context for customer:", {
-            customerGid,
-            companyId,
-            companyLocationId,
-            companyContactId,
-          });
-        } else {
-          console.log(
-            "No B2B context (b2bCustomer) found for customer",
-            customerGid,
-          );
+        let rawB2BText = "";
+        try {
+          rawB2BText = await b2bResp.text();
+          console.log("B2B customer GraphQL raw response:", rawB2BText);
+        } catch (e) {
+          console.error("Error reading B2B GraphQL response text", e);
         }
+
+        let b2bJson = null;
+        try {
+          b2bJson = rawB2BText ? JSON.parse(rawB2BText) : null;
+        } catch (e) {
+          console.error("Error parsing B2B GraphQL JSON:", e, rawB2BText);
+        }
+
+        if (b2bJson?.errors?.length) {
+          console.error("B2B customer GraphQL errors:", b2bJson.errors);
+        }
+
+        const profiles =
+          b2bJson?.data?.customer?.companyContactProfiles || [];
+        if (profiles.length > 0) {
+          const profile = profiles[0];
+          companyId = profile.company?.id || null;
+          companyLocationId = profile.location?.id || null;
+          companyContactId = profile.id || null;
+        }
+
+        console.log("B2B context for customer (from admin GraphQL):", {
+          customerGid,
+          companyId,
+          companyLocationId,
+          companyContactId,
+          profilesCount: profiles.length,
+        });
       } catch (err) {
         console.error("Error fetching B2B company context:", err);
       }
+    } else {
+      console.warn("CREATE intent: customerGid is empty, skipping B2B context lookup");
     }
 
     // Get numeric shop_id again for OC and for Prisma shopId
@@ -503,8 +554,10 @@ export const action = async ({ request }) => {
       try {
         previewRows = JSON.parse(previewJson);
       } catch (e) {
-        console.error("Failed to parse previewJson", e);
+        console.error("Failed to parse previewJson", e, previewJson);
       }
+    } else {
+      console.warn("CREATE intent: previewJson is empty or not a string");
     }
 
     // Only include rows that will actually be added to the order
@@ -515,7 +568,11 @@ export const action = async ({ request }) => {
         Number(row.fulfilledQuantity || 0) > 0,
     );
 
+    console.log("CREATE intent: includedRows length:", includedRows.length);
     if (includedRows.length === 0) {
+      console.warn(
+        "CREATE intent: No rows with available inventory to create a draft order",
+      );
       return {
         mode: "error",
         error:
@@ -538,6 +595,17 @@ export const action = async ({ request }) => {
 
     const note = `Bulk upload for customer: ${customerName} (Shopify customer ID: ${customerNumericId})`;
 
+    console.log("CREATE intent: preparing OC DraftOrderCreate payload:", {
+      shopNumericId,
+      customerGid,
+      customerName,
+      totalQuantity,
+      lineItemsCount: lineItems.length,
+      companyId,
+      companyLocationId,
+      companyContactId,
+    });
+
     // Call OC DraftOrderCreate endpoint
     let draftOrder = null;
 
@@ -551,13 +619,13 @@ export const action = async ({ request }) => {
           },
           body: JSON.stringify({
             shop_id: shopNumericId,
-            // 🔑 IMPORTANT: send full GID to OC for GraphQL customerId
+            // send full GID to OC for GraphQL customerId
             customerId: customerGid,
             customerName: customerName, // not used by OC but harmless
             lineItems,                   // camelCase to match PHP
             note,
             totalQuantity,
-            // 🔹 NEW: send B2B company context to PHP so it can pass it to draftOrderCreate
+            // send B2B company context to PHP so it can pass it to draftOrderCreate
             companyId,
             companyLocationId,
             companyContactId,
@@ -571,6 +639,7 @@ export const action = async ({ request }) => {
         console.error(
           "OC DraftOrderCreate HTTP error:",
           ocResp.status,
+          ocResp.statusText,
           debugText,
         );
         throw new Error(
@@ -578,10 +647,21 @@ export const action = async ({ request }) => {
         );
       }
 
-      const ocJson = await ocResp.json();
+      let ocJson = null;
+      try {
+        ocJson = await ocResp.json();
+      } catch (e) {
+        console.error("OC DraftOrderCreate: failed to parse JSON", e);
+        throw new Error("OC DraftOrderCreate: invalid JSON response");
+      }
+
       console.log("OC DraftOrderCreate raw response:", ocJson);
 
       if (!ocJson || !ocJson.success || !ocJson.draftOrder) {
+        console.error(
+          "OC DraftOrderCreate: invalid or unsuccessful response",
+          ocJson,
+        );
         throw new Error(
           ocJson?.error || "Invalid response from Shopify GraphQL",
         );
@@ -602,6 +682,7 @@ export const action = async ({ request }) => {
     }
 
     if (!draftOrder) {
+      console.error("CREATE intent: draftOrder is null after OC call");
       return {
         mode: "error",
         error:
@@ -757,7 +838,7 @@ export default function ImportOrdersIndex() {
               paddingBottom: "10px",
             }}
           >
-            Bulk Order Upload Ver.1
+            Bulk Order Upload Ver.2
           </h2>
 
           {hasError && (
