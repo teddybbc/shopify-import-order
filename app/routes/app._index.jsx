@@ -476,71 +476,72 @@ export const action = async ({ request }) => {
     let companyLocationId = null;
     let companyContactId = null;
 
-    if (customerGid) {
-      try {
-        const b2bResp = await admin.graphql(
-          `#graphql
-          query B2BCustomerContext($id: ID!) {
-            customer(id: $id) {
-              id
-              companyContactProfiles {
-                id
-                company {
+        if (customerGid) {
+          try {
+            const b2bResp = await admin.graphql(
+              `#graphql
+              query B2BCustomerContext($id: ID!) {
+                customer(id: $id) {
                   id
-                  name
-                }
-                location {
-                  id
-                  name
+                  email
+                  b2bCustomer {
+                    company {
+                      id
+                      name
+                    }
+                    companyLocation {
+                      id
+                      name
+                    }
+                    companyContact {
+                      id
+                      firstName
+                      lastName
+                    }
+                  }
                 }
               }
+              `,
+              { variables: { id: customerGid } },
+            );
+
+            const b2bJson = await b2bResp.json();
+            console.log(
+              "B2B customer GraphQL JSON:",
+              JSON.stringify(b2bJson, null, 2),
+            );
+
+            if (b2bJson?.errors?.length) {
+              console.error("B2B customer GraphQL errors:", b2bJson.errors);
             }
+
+            const b2b = b2bJson?.data?.customer?.b2bCustomer;
+            if (b2b) {
+              companyId = b2b.company?.id || null;
+              companyLocationId = b2b.companyLocation?.id || null;
+              companyContactId = b2b.companyContact?.id || null;
+            } else {
+              console.log(
+                "No b2bCustomer found for customer (not attached to a B2B company?)",
+                customerGid,
+              );
+            }
+
+            console.log("B2B context for customer:", {
+              customerGid,
+              companyId,
+              companyLocationId,
+              companyContactId,
+            });
+          } catch (err) {
+            console.error("Error fetching B2B company context:", err);
           }
-          `,
-          { variables: { id: customerGid } },
-        );
-
-        let rawB2BText = "";
-        try {
-          rawB2BText = await b2bResp.text();
-          console.log("B2B customer GraphQL raw response:", rawB2BText);
-        } catch (e) {
-          console.error("Error reading B2B GraphQL response text", e);
+        } else {
+          console.warn(
+            "CREATE intent: customerGid is empty, skipping B2B context lookup",
+          );
         }
 
-        let b2bJson = null;
-        try {
-          b2bJson = rawB2BText ? JSON.parse(rawB2BText) : null;
-        } catch (e) {
-          console.error("Error parsing B2B GraphQL JSON:", e, rawB2BText);
-        }
-
-        if (b2bJson?.errors?.length) {
-          console.error("B2B customer GraphQL errors:", b2bJson.errors);
-        }
-
-        const profiles =
-          b2bJson?.data?.customer?.companyContactProfiles || [];
-        if (profiles.length > 0) {
-          const profile = profiles[0];
-          companyId = profile.company?.id || null;
-          companyLocationId = profile.location?.id || null;
-          companyContactId = profile.id || null;
-        }
-
-        console.log("B2B context for customer (from admin GraphQL):", {
-          customerGid,
-          companyId,
-          companyLocationId,
-          companyContactId,
-          profilesCount: profiles.length,
-        });
-      } catch (err) {
-        console.error("Error fetching B2B company context:", err);
-      }
-    } else {
-      console.warn("CREATE intent: customerGid is empty, skipping B2B context lookup");
-    }
 
     // Get numeric shop_id again for OC and for Prisma shopId
     const shopNumericId = await getShopNumericId(admin);
