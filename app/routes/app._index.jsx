@@ -418,7 +418,7 @@ export const action = async ({ request }) => {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 2) CREATE: Save history + create Draft Order via OC
+  // 2) CREATE: Save history + create Draft Order via OC (with B2B company context)
   // ─────────────────────────────────────────────────────────────
   if (intent === "create") {
     const customerName = formData.get("customerName") || "Unknown Customer";
@@ -432,6 +432,64 @@ export const action = async ({ request }) => {
     const customerNumericId = customerGid.startsWith("gid://")
       ? customerGid.split("/").pop()
       : customerGid;
+
+    // 🔹 NEW: Fetch B2B company context for this customer
+    let companyId = null;
+    let companyLocationId = null;
+    let companyContactId = null;
+
+    if (customerGid) {
+      try {
+        const b2bResp = await admin.graphql(
+          `#graphql
+          query B2BCustomerContext($id: ID!) {
+            customer(id: $id) {
+              id
+              b2bCustomer {
+                company {
+                  id
+                  name
+                }
+                companyLocation {
+                  id
+                  name
+                }
+                companyContact {
+                  id
+                  firstName
+                  lastName
+                }
+              }
+            }
+          }
+          `,
+          { variables: { id: customerGid } },
+        );
+
+        const b2bJson = await b2bResp.json();
+        const b2b = b2bJson?.data?.customer?.b2bCustomer;
+
+        if (b2b) {
+          companyId = b2b.company?.id || null;
+          companyLocationId = b2b.companyLocation?.id || null;
+          companyContactId = b2b.companyContact?.id || null;
+
+          console.log("B2B context for customer:", {
+            customerGid,
+            companyId,
+            companyLocationId,
+            companyContactId,
+          });
+        } else {
+          console.log(
+            "No B2B context (b2bCustomer) found for customer",
+            customerGid,
+          );
+        }
+      } catch (err) {
+        console.error("Error fetching B2B company context:", err);
+      }
+    }
 
     // Get numeric shop_id again for OC and for Prisma shopId
     const shopNumericId = await getShopNumericId(admin);
@@ -499,6 +557,10 @@ export const action = async ({ request }) => {
             lineItems,                   // camelCase to match PHP
             note,
             totalQuantity,
+            // 🔹 NEW: send B2B company context to PHP so it can pass it to draftOrderCreate
+            companyId,
+            companyLocationId,
+            companyContactId,
           }),
         },
       );
@@ -564,7 +626,7 @@ export const action = async ({ request }) => {
     try {
       await db.bulkOrderUpload.create({
         data: {
-          shopId: shopNumericId || null, // ← NEW: per-domain history
+          shopId: shopNumericId || null, // ← per-domain history
           customerId: customerNumericId, // numeric customer id
           customerName,
           orderId: realOrderId, // full GID
@@ -932,7 +994,9 @@ export default function ImportOrdersIndex() {
                     <th style={{ textAlign: "left" }}>Available</th>
                     <th style={{ textAlign: "left" }}>Requested</th>
                     <th style={{ textAlign: "left" }}>Fulfilled</th>
-                    <th style={{ textAlign: "left", width:"100px" }}>Status</th>
+                    <th style={{ textAlign: "left", width: "100px" }}>
+                      Status
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
