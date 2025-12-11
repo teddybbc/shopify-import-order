@@ -471,7 +471,8 @@ export const action = async ({ request }) => {
       ? customerGid.split("/").pop()
       : customerGid;
 
-    // 🔹 Fetch B2B company context for this customer
+
+    // 🔹 Fetch B2B company context for this customer (for debugging)
     let companyId = null;
     let companyLocationId = null;
     let companyContactId = null;
@@ -484,19 +485,19 @@ export const action = async ({ request }) => {
             customer(id: $id) {
               id
               email
-              companyContactProfiles(first: 10) {
-                nodes {
+              companyContactProfiles {
+                company {
                   id
-                  company {
-                    id
-                    name
-                    locations(first: 10) {
-                      nodes {
-                        id
-                        name
-                      }
-                    }
-                  }
+                  name
+                }
+                companyLocation {
+                  id
+                  name
+                }
+                companyContact {
+                  id
+                  firstName
+                  lastName
                 }
               }
             }
@@ -506,34 +507,28 @@ export const action = async ({ request }) => {
         );
 
         const b2bJson = await b2bResp.json();
+
         console.log(
-          "B2B customer/companyContactProfiles GraphQL JSON:",
+          "B2B customer GraphQL JSON:",
           JSON.stringify(b2bJson, null, 2),
         );
 
         if (b2bJson?.errors?.length) {
-          console.error(
-            "B2B customer/companyContactProfiles GraphQL errors:",
-            b2bJson.errors,
-          );
+          console.error("B2B customer GraphQL errors:", b2bJson.errors);
         }
 
         const profiles =
-          b2bJson?.data?.customer?.companyContactProfiles?.nodes || [];
+          b2bJson?.data?.customer?.companyContactProfiles || [];
 
-        if (profiles.length > 0) {
-          const firstProfile = profiles[0];
-          const company = firstProfile?.company;
-          const locations = company?.locations?.nodes || [];
-          const firstLocation = locations[0];
+        const primaryProfile = profiles[0];
 
-          companyId = company?.id || null;
-          companyLocationId = firstLocation?.id || null;
-          // Use the profile id as a stand-in for companyContactId if you want
-          companyContactId = firstProfile?.id || null;
+        if (primaryProfile) {
+          companyId = primaryProfile.company?.id || null;
+          companyLocationId = primaryProfile.companyLocation?.id || null;
+          companyContactId = primaryProfile.companyContact?.id || null;
         } else {
           console.log(
-            "No companyContactProfiles found for customer (not attached to a B2B company?)",
+            "No companyContactProfiles found for customer (probably DTC or not B2B):",
             customerGid,
           );
         }
@@ -552,6 +547,7 @@ export const action = async ({ request }) => {
         "CREATE intent: customerGid is empty, skipping B2B context lookup",
       );
     }
+
 
     // Get numeric shop_id again for OC and for Prisma shopId
     const shopNumericId = await getShopNumericId(admin);
