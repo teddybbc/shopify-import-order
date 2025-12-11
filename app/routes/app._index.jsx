@@ -38,14 +38,21 @@ async function getShopNumericId(admin) {
         try {
           body = JSON.parse(txt);
         } catch (e) {
-          console.error("getShopNumericId: failed to parse response text", e, txt);
+          console.error(
+            "getShopNumericId: failed to parse response text",
+            e,
+            txt,
+          );
           body = null;
         }
       } else {
         body = resp?.body || resp;
       }
     } catch (err) {
-      console.error("getShopNumericId: error reading GraphQL response body", err);
+      console.error(
+        "getShopNumericId: error reading GraphQL response body",
+        err,
+      );
       body = null;
     }
 
@@ -54,12 +61,13 @@ async function getShopNumericId(admin) {
     }
 
     const gid = body?.data?.shop?.id || "";
-    const numericId = gid.startsWith("gid://")
-      ? gid.split("/").pop()
-      : gid;
+    const numericId = gid.startsWith("gid://") ? gid.split("/").pop() : gid;
 
     if (!numericId) {
-      console.error("getShopNumericId: missing shop.id in GraphQL data", body);
+      console.error(
+        "getShopNumericId: missing shop.id in GraphQL data",
+        body,
+      );
     } else {
       console.log("Detected Shopify numeric shop_id:", numericId);
     }
@@ -68,6 +76,99 @@ async function getShopNumericId(admin) {
   } catch (err) {
     console.error("Failed to fetch shop.id for numeric shop_id", err);
     return null;
+  }
+}
+
+/**
+ * Helper: fetch B2B company context for a customer (if any).
+ * Returns { companyId, companyLocationId, companyContactId } or all null.
+ */
+async function getB2BContext(admin, customerGid) {
+  if (!customerGid) {
+    console.warn(
+      "getB2BContext: customerGid is empty, skipping B2B context lookup",
+    );
+    return {
+      companyId: null,
+      companyLocationId: null,
+      companyContactId: null,
+    };
+  }
+
+  try {
+    const b2bResp = await admin.graphql(
+      `#graphql
+      query B2BCustomerContext($id: ID!) {
+        customer(id: $id) {
+          id
+          email
+          companyContactProfiles {
+            company {
+              id
+              name
+            }
+            companyLocation {
+              id
+              name
+            }
+            companyContact {
+              id
+              firstName
+              lastName
+            }
+          }
+        }
+      }
+      `,
+      { variables: { id: customerGid } },
+    );
+
+    const b2bJson = await b2bResp.json();
+
+    console.log(
+      "B2B customer GraphQL JSON:",
+      JSON.stringify(b2bJson, null, 2),
+    );
+
+    if (b2bJson?.errors?.length) {
+      console.error("B2B customer GraphQL errors:", b2bJson.errors);
+    }
+
+    const profiles = b2bJson?.data?.customer?.companyContactProfiles || [];
+    const primaryProfile = profiles[0];
+
+    if (!primaryProfile) {
+      console.log(
+        "No companyContactProfiles found for customer (probably DTC or not B2B):",
+        customerGid,
+      );
+      return {
+        companyId: null,
+        companyLocationId: null,
+        companyContactId: null,
+      };
+    }
+
+    const companyId = primaryProfile.company?.id || null;
+    const companyLocationId = primaryProfile.companyLocation?.id || null;
+    const companyContactId = primaryProfile.companyContact?.id || null;
+
+    console.log("B2B context for customer:", {
+      customerGid,
+      companyId,
+      companyLocationId,
+      companyContactId,
+    });
+
+    return { companyId, companyLocationId, companyContactId };
+  } catch (err) {
+    // If schema changes or B2B disabled, we just log and continue as DTC.
+    console.error("Error fetching B2B company context:", err);
+    return {
+      companyId: null,
+      companyLocationId: null,
+      companyContactId: null,
+    };
   }
 }
 
@@ -253,7 +354,10 @@ export const action = async ({ request }) => {
     );
 
     if (skuIndex === -1 || qtyIndex === -1) {
-      console.warn("PROCESS: missing sku/quantity columns in headerRow", headerRow);
+      console.warn(
+        "PROCESS: missing sku/quantity columns in headerRow",
+        headerRow,
+      );
       return {
         mode: "error",
         error:
@@ -471,83 +575,12 @@ export const action = async ({ request }) => {
       ? customerGid.split("/").pop()
       : customerGid;
 
-
-    // 🔹 Fetch B2B company context for this customer (for debugging)
-    let companyId = null;
-    let companyLocationId = null;
-    let companyContactId = null;
-
-    if (customerGid) {
-      try {
-        const b2bResp = await admin.graphql(
-          `#graphql
-          query B2BCustomerContext($id: ID!) {
-            customer(id: $id) {
-              id
-              email
-              companyContactProfiles {
-                company {
-                  id
-                  name
-                }
-                companyLocation {
-                  id
-                  name
-                }
-                companyContact {
-                  id
-                  firstName
-                  lastName
-                }
-              }
-            }
-          }
-          `,
-          { variables: { id: customerGid } },
-        );
-
-        const b2bJson = await b2bResp.json();
-
-        console.log(
-          "B2B customer GraphQL JSON:",
-          JSON.stringify(b2bJson, null, 2),
-        );
-
-        if (b2bJson?.errors?.length) {
-          console.error("B2B customer GraphQL errors:", b2bJson.errors);
-        }
-
-        const profiles =
-          b2bJson?.data?.customer?.companyContactProfiles || [];
-
-        const primaryProfile = profiles[0];
-
-        if (primaryProfile) {
-          companyId = primaryProfile.company?.id || null;
-          companyLocationId = primaryProfile.companyLocation?.id || null;
-          companyContactId = primaryProfile.companyContact?.id || null;
-        } else {
-          console.log(
-            "No companyContactProfiles found for customer (probably DTC or not B2B):",
-            customerGid,
-          );
-        }
-
-        console.log("B2B context for customer:", {
-          customerGid,
-          companyId,
-          companyLocationId,
-          companyContactId,
-        });
-      } catch (err) {
-        console.error("Error fetching B2B company context:", err);
-      }
-    } else {
-      console.warn(
-        "CREATE intent: customerGid is empty, skipping B2B context lookup",
-      );
-    }
-
+    // 🔹 Fetch B2B company context for this customer (if any)
+    const {
+      companyId,
+      companyLocationId,
+      companyContactId,
+    } = await getB2BContext(admin, customerGid);
 
     // Get numeric shop_id again for OC and for Prisma shopId
     const shopNumericId = await getShopNumericId(admin);
@@ -629,7 +662,7 @@ export const action = async ({ request }) => {
             // send full GID to OC for GraphQL customerId
             customerId: customerGid,
             customerName: customerName, // not used by OC but harmless
-            lineItems,                   // camelCase to match PHP
+            lineItems, // camelCase to match PHP
             note,
             totalQuantity,
             // send B2B company context to PHP so it can pass it to draftOrderCreate
@@ -907,7 +940,7 @@ export default function ImportOrdersIndex() {
                     name="customerName"
                     placeholder="Start typing customer name..."
                     value={customerQuery}
-                    autocomplete="off"
+                    autoComplete="off"
                     onChange={handleCustomerChange}
                     style={{
                       width: "100%",
