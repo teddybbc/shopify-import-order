@@ -103,19 +103,17 @@ async function getB2BContext(admin, customerGid) {
           id
           email
           companyContactProfiles {
+            id
+            firstName
+            lastName
+            email
             company {
               id
               name
             }
-            companyLocation {
-              id
-              name
-            }
-            companyContact {
-              id
-              firstName
-              lastName
-            }
+            # We intentionally DO NOT query companyLocation/companyLocations
+            # here because the previous schema error shows they aren't valid
+            # fields on CompanyContact for this API version.
           }
         }
       }
@@ -134,12 +132,13 @@ async function getB2BContext(admin, customerGid) {
       console.error("B2B customer GraphQL errors:", b2bJson.errors);
     }
 
-    const profiles = b2bJson?.data?.customer?.companyContactProfiles || [];
+    const profiles =
+      b2bJson?.data?.customer?.companyContactProfiles || [];
     const primaryProfile = profiles[0];
 
-    if (!primaryProfile) {
+    if (!primaryProfile || !primaryProfile.company) {
       console.log(
-        "No companyContactProfiles found for customer (probably DTC or not B2B):",
+        "No companyContactProfiles with company found for customer (probably DTC or not B2B):",
         customerGid,
       );
       return {
@@ -149,9 +148,9 @@ async function getB2BContext(admin, customerGid) {
       };
     }
 
-    const companyId = primaryProfile.company?.id || null;
-    const companyLocationId = primaryProfile.companyLocation?.id || null;
-    const companyContactId = primaryProfile.companyContact?.id || null;
+    const companyId = primaryProfile.company.id || null;
+    const companyLocationId = null; // not fetched (see note above)
+    const companyContactId = primaryProfile.id || null;
 
     console.log("B2B context for customer:", {
       customerGid,
@@ -162,7 +161,6 @@ async function getB2BContext(admin, customerGid) {
 
     return { companyId, companyLocationId, companyContactId };
   } catch (err) {
-    // If schema changes or B2B disabled, we just log and continue as DTC.
     console.error("Error fetching B2B company context:", err);
     return {
       companyId: null,
@@ -171,6 +169,7 @@ async function getB2BContext(admin, customerGid) {
     };
   }
 }
+
 
 /**
  * Loader: authenticate admin + load history from Prisma (per shopId) + preload customers via OC
@@ -878,7 +877,7 @@ export default function ImportOrdersIndex() {
               paddingBottom: "10px",
             }}
           >
-            Bulk Order Upload Ver.4
+            Bulk Order Upload Ver 1.01
           </h2>
 
           {hasError && (
