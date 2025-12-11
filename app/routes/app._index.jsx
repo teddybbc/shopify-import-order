@@ -102,18 +102,25 @@ async function getB2BContext(admin, customerGid) {
         customer(id: $id) {
           id
           email
-          companyContactProfiles {
-            id
-            firstName
-            lastName
-            email
+          companyContactProfiles(first: 1) {
             company {
               id
               name
             }
-            # We intentionally DO NOT query companyLocation/companyLocations
-            # here because the previous schema error shows they aren't valid
-            # fields on CompanyContact for this API version.
+            companyLocation {
+              id
+              name
+            }
+            companyContact {
+              id
+              # Names live on the related customer object, but we don't need them here.
+              # customer {
+              #   id
+              #   firstName
+              #   lastName
+              #   email
+              # }
+            }
           }
         }
       }
@@ -136,9 +143,9 @@ async function getB2BContext(admin, customerGid) {
       b2bJson?.data?.customer?.companyContactProfiles || [];
     const primaryProfile = profiles[0];
 
-    if (!primaryProfile || !primaryProfile.company) {
+    if (!primaryProfile) {
       console.log(
-        "No companyContactProfiles with company found for customer (probably DTC or not B2B):",
+        "No companyContactProfiles found for customer (probably DTC or not B2B):",
         customerGid,
       );
       return {
@@ -148,9 +155,11 @@ async function getB2BContext(admin, customerGid) {
       };
     }
 
-    const companyId = primaryProfile.company.id || null;
-    const companyLocationId = null; // not fetched (see note above)
-    const companyContactId = primaryProfile.id || null;
+    const companyId = primaryProfile.company?.id || null;
+    const companyLocationId =
+      primaryProfile.companyLocation?.id || null;
+    const companyContactId =
+      primaryProfile.companyContact?.id || null;
 
     console.log("B2B context for customer:", {
       customerGid,
@@ -161,6 +170,7 @@ async function getB2BContext(admin, customerGid) {
 
     return { companyId, companyLocationId, companyContactId };
   } catch (err) {
+    // If schema changes or B2B disabled, we just log and continue as DTC.
     console.error("Error fetching B2B company context:", err);
     return {
       companyId: null,
@@ -169,6 +179,7 @@ async function getB2BContext(admin, customerGid) {
     };
   }
 }
+
 
 
 /**
