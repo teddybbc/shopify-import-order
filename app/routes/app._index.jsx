@@ -89,73 +89,56 @@ async function getShopNumericId(admin) {
  */
 async function getB2BContext(admin, customerGid) {
   if (!customerGid) {
-    console.warn(
-      "getB2BContext: customerGid is empty, skipping B2B context lookup",
-    );
-    return {
-      companyId: null,
-      companyLocationId: null,
-      companyContactId: null,
-    };
+    return { companyId: null, companyLocationId: null, companyContactId: null };
   }
 
   try {
-    const b2bResp = await admin.graphql(
+    // 1) Find the company from the customer
+    const resp1 = await admin.graphql(
       `#graphql
-      query B2BCustomerContext($id: ID!) {
+      query B2BCompanyFromCustomer($id: ID!) {
         customer(id: $id) {
           id
-          email
-          companyContactProfiles {
-            company {
-              id
-              name
+          companyContactProfiles(first: 10) {
+            edges {
+              node {
+                company {
+                  id
+                  name
+                  locations(first: 10) {
+                    edges { node { id name } }
+                  }
+                  contacts(first: 10) {
+                    edges { node { id displayName } }
+                  }
+                }
+              }
             }
           }
         }
-      }
-      `,
-      {
-        variables: { id: customerGid },
-      },
+      }`,
+      { variables: { id: customerGid } },
     );
 
-    const b2bJson = await b2bResp.json();
+    const json1 = await resp1.json();
 
-    console.log(
-      "B2B customer GraphQL JSON:",
-      JSON.stringify(b2bJson, null, 2),
-    );
+    const edges =
+      json1?.data?.customer?.companyContactProfiles?.edges || [];
 
-    if (b2bJson?.errors?.length) {
-      console.error("B2B customer GraphQL errors:", b2bJson.errors);
+    if (!edges.length) {
+      return { companyId: null, companyLocationId: null, companyContactId: null };
     }
 
-    const profiles =
-      b2bJson?.data?.customer?.companyContactProfiles || [];
+    const company = edges[0]?.node?.company;
+    const companyId = company?.id || null;
 
-    if (!profiles.length) {
-      console.log(
-        "No companyContactProfiles found for customer (probably DTC or not B2B):",
-        customerGid,
-      );
-      return {
-        companyId: null,
-        companyLocationId: null,
-        companyContactId: null,
-      };
-    }
+    const companyLocationId =
+      company?.locations?.edges?.[0]?.node?.id || null;
 
-    const primaryProfile = profiles[0];
+    const companyContactId =
+      company?.contacts?.edges?.[0]?.node?.id || null;
 
-    const companyId = primaryProfile?.company?.id || null;
-
-    // We don't currently fetch location/contact from GraphQL,
-    // so keep them as null for now.
-    const companyLocationId = null;
-    const companyContactId = null;
-
-    console.log("B2B context for customer:", {
+    console.log("B2B context resolved:", {
       customerGid,
       companyId,
       companyLocationId,
@@ -163,16 +146,12 @@ async function getB2BContext(admin, customerGid) {
     });
 
     return { companyId, companyLocationId, companyContactId };
-  } catch (err) {
-    // If schema changes or B2B disabled, we just log and continue as DTC.
-    console.error("Error fetching B2B company context:", err);
-    return {
-      companyId: null,
-      companyLocationId: null,
-      companyContactId: null,
-    };
+  } catch (e) {
+    console.error("getB2BContext failed:", e);
+    return { companyId: null, companyLocationId: null, companyContactId: null };
   }
 }
+
 
 
 
