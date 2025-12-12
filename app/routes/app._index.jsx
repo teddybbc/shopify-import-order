@@ -166,18 +166,18 @@ export const loader = async ({ request }) => {
   let history = [];
   if (shopNumericId) {
 
-    const deleted = await db.bulkOrderUpload.deleteMany({
-        where: {
-          shopId: shopNumericId,
-        },
-      });
+    // const deleted = await db.bulkOrderUpload.deleteMany({
+    //     where: {
+    //       shopId: shopNumericId,
+    //     },
+    //   });
 
-      console.log(
-        "🧹 DEV ONLY: bulkOrderUpload cleared for shop",
-        shopNumericId,
-        "rows deleted:",
-        deleted.count,
-      );
+    //   console.log(
+    //     "🧹 DEV ONLY: bulkOrderUpload cleared for shop",
+    //     shopNumericId,
+    //     "rows deleted:",
+    //     deleted.count,
+    //   );
 
     try {
       history = await db.bulkOrderUpload.findMany({
