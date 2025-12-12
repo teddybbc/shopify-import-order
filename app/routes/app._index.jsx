@@ -675,7 +675,7 @@ export default function ImportOrdersIndex() {
   const fileInputRef = useRef(null);
 
   // ✅ Import History search + pagination (client-side)
-  const HISTORY_PAGE_SIZE = 25;
+  const HISTORY_PAGE_SIZE = 15;
   const [historySearch, setHistorySearch] = useState("");
   const [historyPage, setHistoryPage] = useState(1);
 
