@@ -1104,7 +1104,7 @@ export default function ImportOrdersIndex() {
                   type="text"
                   value={historySearch}
                   onChange={(e) => setHistorySearch(e.target.value)}
-                  placeholder='Search customer/company or draft order (e.g. "Mars" or "#62")'
+                  placeholder='Search customer, company or order number'
                   style={{
                     width: "100%",
                     maxWidth: "520px",
