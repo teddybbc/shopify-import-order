@@ -89,27 +89,25 @@ async function getShopNumericId(admin) {
  */
 async function getB2BContext(admin, customerGid) {
   if (!customerGid) {
+    console.warn("getB2BContext: customerGid is empty, skipping");
     return { companyId: null, companyLocationId: null, companyContactId: null };
   }
 
   try {
-    // 1) Find the company from the customer
-    const resp1 = await admin.graphql(
+    const resp = await admin.graphql(
       `#graphql
-      query B2BCompanyFromCustomer($id: ID!) {
+      query B2BContext($id: ID!) {
         customer(id: $id) {
           id
-          companyContactProfiles(first: 10) {
-            edges {
-              node {
-                company {
-                  id
-                  name
-                  locations(first: 10) {
-                    edges { node { id name } }
-                  }
-                  contacts(first: 10) {
-                    edges { node { id displayName } }
+          companyContactProfiles {
+            id
+            company {
+              id
+              locations(first: 10) {
+                edges {
+                  node {
+                    id
+                    name
                   }
                 }
               }
@@ -120,34 +118,33 @@ async function getB2BContext(admin, customerGid) {
       { variables: { id: customerGid } },
     );
 
-    const json1 = await resp1.json();
+    const json = await resp.json();
+    console.log("B2B customer GraphQL JSON:", JSON.stringify(json, null, 2));
 
-    const edges =
-      json1?.data?.customer?.companyContactProfiles?.edges || [];
-
-    if (!edges.length) {
+    const profiles = json?.data?.customer?.companyContactProfiles || [];
+    if (!profiles.length) {
+      console.log("No companyContactProfiles for customer:", customerGid);
       return { companyId: null, companyLocationId: null, companyContactId: null };
     }
 
-    const company = edges[0]?.node?.company;
-    const companyId = company?.id || null;
+    const profile = profiles[0];
 
-    const companyLocationId =
-      company?.locations?.edges?.[0]?.node?.id || null;
+    const companyId = profile?.company?.id || null;
+    const companyContactId = profile?.id || null; // IMPORTANT: this is the companyContactProfile id
 
-    const companyContactId =
-      company?.contacts?.edges?.[0]?.node?.id || null;
+    const locEdges = profile?.company?.locations?.edges || [];
+    const companyLocationId = locEdges?.[0]?.node?.id || null;
 
     console.log("B2B context resolved:", {
       customerGid,
       companyId,
-      companyLocationId,
       companyContactId,
+      companyLocationId,
     });
 
-    return { companyId, companyLocationId, companyContactId };
-  } catch (e) {
-    console.error("getB2BContext failed:", e);
+    return { companyId, companyContactId, companyLocationId };
+  } catch (err) {
+    console.error("getB2BContext failed:", err);
     return { companyId: null, companyLocationId: null, companyContactId: null };
   }
 }
@@ -861,7 +858,7 @@ export default function ImportOrdersIndex() {
               paddingBottom: "10px",
             }}
           >
-            Bulk Order Upload Ver 1.05
+            Bulk Order Upload Ver 1.06
           </h2>
 
           {hasError && (
