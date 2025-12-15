@@ -1221,7 +1221,6 @@ export default function ImportOrdersIndex() {
                               {shopAdminSubdomain && item.orderLegacyId ? (
                                 <a
                                   href={`https://admin.shopify.com/store/${shopAdminSubdomain}/draft_orders/${item.orderLegacyId}`}
-                                  target="_blank"
                                   rel="noreferrer"
                                   style={{ color: "#005bd3", textDecoration: "underline" }}
                                 >
