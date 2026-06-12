@@ -144,6 +144,190 @@ async function getB2BContext(admin, customerGid) {
   }
 }
 
+// OC backend endpoint that extracts SKU/quantity pairs from PDF, image, Word or
+// pasted text using Claude (mirrors the storefront upload.php ai_extract).
+const OC_AI_EXTRACT_URL =
+  "https://dev.bloomandgrowgroup.com/index.php?route=bloom/import_order/ai_extract";
+
+// Shared GraphQL selection for a variant + its available inventory.
+const VARIANT_FIELDS = `
+  id
+  sku
+  displayName
+  product { title }
+  inventoryItem {
+    inventoryLevels(first: 10) {
+      edges {
+        node {
+          quantities(names: ["available"]) {
+            name
+            quantity
+          }
+        }
+      }
+    }
+  }
+`;
+
+/** Standard preview-row shape used by both the spreadsheet and AI paths. */
+function makeParsedRow(sku, quantityRequested) {
+  return {
+    sku,
+    productName: "",
+    exist: false,
+    availableQuantity: 0,
+    quantityRequested,
+    fulfilledQuantity: 0,
+    status: "pending",
+    variantId: null,
+  };
+}
+
+/**
+ * Parse a CSV/Excel file locally with SheetJS. Requires a header row with
+ * `sku` and `quantity` (or `qty`) columns. Returns { rows } or { error }.
+ */
+async function parseSpreadsheet(file) {
+  let workbook;
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    workbook = XLSX.read(buffer, { type: "buffer" });
+  } catch (e) {
+    console.error("Failed to parse file with xlsx", e);
+    return {
+      error:
+        "Unable to read the file. Please check that it's a valid CSV or Excel file.",
+    };
+  }
+
+  const sheetName = workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+
+  if (!rows || rows.length === 0) {
+    return { error: "The file is empty." };
+  }
+
+  const headerRow = rows[0].map((h) => String(h).trim().toLowerCase());
+  const skuIndex = headerRow.findIndex((h) => h === "sku");
+  const qtyIndex = headerRow.findIndex((h) => h === "quantity" || h === "qty");
+
+  if (skuIndex === -1 || qtyIndex === -1) {
+    return {
+      error: "Header row must contain 'sku' and 'quantity' (or 'qty') columns.",
+    };
+  }
+
+  const parsed = [];
+  for (const row of rows.slice(1)) {
+    const sku = String(row[skuIndex] || "").trim();
+    if (!sku) continue;
+    const quantityRequested = Number(row[qtyIndex] || 0);
+    if (!Number.isFinite(quantityRequested) || quantityRequested <= 0) continue;
+    parsed.push(makeParsedRow(sku, quantityRequested));
+  }
+
+  return { rows: parsed };
+}
+
+/**
+ * Send a PDF/image/Word file and/or pasted text to the OC AI extractor and
+ * normalise the response into preview rows. Throws on transport/service error.
+ */
+async function extractRowsWithAI({ file, orderText }) {
+  const aiForm = new FormData();
+  if (file) aiForm.append("file", file, file.name);
+  if (orderText) aiForm.append("order_text", orderText);
+
+  const resp = await fetch(OC_AI_EXTRACT_URL, {
+    method: "POST",
+    body: aiForm,
+  });
+
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => "");
+    console.error("AI extract HTTP error:", resp.status, resp.statusText, txt);
+    throw new Error(`AI service HTTP ${resp.status}`);
+  }
+
+  const json = await resp.json().catch((e) => {
+    console.error("AI extract: failed to parse JSON", e);
+    return null;
+  });
+
+  if (!json) throw new Error("AI service returned an invalid response.");
+
+  const rows = Array.isArray(json.rows) ? json.rows : [];
+  if (json.error && rows.length === 0) {
+    throw new Error(json.error);
+  }
+
+  return rows
+    .map((r) => {
+      const sku = String(r.sku || "").trim();
+      const qty = Number(r.quantity || 0);
+      if (!sku || !Number.isFinite(qty) || qty <= 0) return null;
+      return makeParsedRow(sku, qty);
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Look up a variant by SKU. AI extraction can return a product *name* when no
+ * SKU is printed, so fall back to a product title search for multi-word values.
+ */
+async function lookupVariantNode(admin, identifier) {
+  // 1) Precise SKU match.
+  try {
+    const resp = await admin.graphql(
+      `#graphql
+      query variantBySku($query: String!) {
+        productVariants(first: 1, query: $query) {
+          edges { node { ${VARIANT_FIELDS} } }
+        }
+      }`,
+      { variables: { query: `sku:"${identifier}"` } },
+    );
+    const json = await resp.json();
+    if (json?.errors?.length) {
+      console.error("variantBySku errors for", identifier, json.errors);
+    }
+    const node = json?.data?.productVariants?.edges?.[0]?.node;
+    if (node) return node;
+  } catch (err) {
+    console.error("lookupVariantNode SKU query failed", identifier, err);
+  }
+
+  // 2) Fallback: treat a multi-word identifier as a product name.
+  if (/\s/.test(identifier)) {
+    try {
+      const resp = await admin.graphql(
+        `#graphql
+        query variantByName($query: String!) {
+          products(first: 1, query: $query) {
+            edges {
+              node { variants(first: 1) { edges { node { ${VARIANT_FIELDS} } } } }
+            }
+          }
+        }`,
+        { variables: { query: identifier } },
+      );
+      const json = await resp.json();
+      if (json?.errors?.length) {
+        console.error("variantByName errors for", identifier, json.errors);
+      }
+      const node =
+        json?.data?.products?.edges?.[0]?.node?.variants?.edges?.[0]?.node;
+      if (node) return node;
+    } catch (err) {
+      console.error("lookupVariantNode name query failed", identifier, err);
+    }
+  }
+
+  return null;
+}
+
 /**
  * Loader: authenticate admin + load history from Prisma (per shopId) + preload customers via OC
  */
@@ -249,21 +433,22 @@ export const action = async ({ request }) => {
   const intent = formData.get("intent");
 
   if (intent === "process") {
-    const customerNameRaw = formData.get("customerName") || "";
-    const customerIdRaw = formData.get("customerId") || "";
-    const customerName = customerNameRaw.trim();
-    const customerId = customerIdRaw.trim();
+    const customerName = (formData.get("customerName") || "").trim();
+    const customerId = (formData.get("customerId") || "").trim();
     const file = formData.get("file");
+    const orderText = (formData.get("orderText") || "").trim();
 
     const missingCustomer = !customerName || !customerId;
-    const missingFile = !file || typeof file === "string";
+    const hasFile = file && typeof file !== "string" && file.size > 0;
+    const hasText = orderText.length > 0;
 
-    if (missingCustomer || missingFile) {
-      let errorMessage =
-        "Customer selection and CSV/Excel file are required to import orders.";
+    if (missingCustomer || (!hasFile && !hasText)) {
+      const errorMessage =
+        "Select a customer and either upload a file (CSV, Excel, PDF, image, or Word) or paste your order text.";
       console.warn("PROCESS validation failed:", {
         missingCustomer,
-        missingFile,
+        hasFile,
+        hasText,
         customerName,
         customerId,
       });
@@ -276,81 +461,46 @@ export const action = async ({ request }) => {
       };
     }
 
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    // Spreadsheets are parsed locally (free + instant). Everything else —
+    // PDF, image, Word, or pasted text — goes to the AI extractor.
+    const fileExt = hasFile
+      ? String(file.name || "").split(".").pop().toLowerCase()
+      : "";
+    const isSpreadsheet = hasFile && ["csv", "xls", "xlsx"].includes(fileExt);
 
-    let workbook;
-    try {
-      workbook = XLSX.read(buffer, { type: "buffer" });
-    } catch (e) {
-      console.error("Failed to parse file with xlsx", e);
-      return {
-        mode: "error",
-        error:
-          "Unable to read the file. Please check that it's a valid CSV or Excel file.",
-        customerName,
-        customerId,
-        previewRows: [],
-      };
-    }
+    let parsedRows = [];
 
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-
-    const rows = XLSX.utils.sheet_to_json(sheet, {
-      header: 1,
-      defval: "",
-    });
-
-    if (!rows || rows.length === 0) {
-      console.warn("PROCESS: uploaded file appears empty");
-      return {
-        mode: "error",
-        error: "The file is empty.",
-        customerName,
-        customerId,
-        previewRows: [],
-      };
-    }
-
-    const headerRow = rows[0].map((h) => String(h).trim().toLowerCase());
-    const skuIndex = headerRow.findIndex((h) => h === "sku");
-    const qtyIndex = headerRow.findIndex((h) => h === "quantity" || h === "qty");
-
-    if (skuIndex === -1 || qtyIndex === -1) {
-      console.warn("PROCESS: missing sku/quantity columns in headerRow", headerRow);
-      return {
-        mode: "error",
-        error: "Header row must contain 'sku' and 'quantity' (or 'qty') columns.",
-        customerName,
-        customerId,
-        previewRows: [],
-      };
-    }
-
-    const dataRows = rows.slice(1);
-    const parsedRows = [];
-
-    for (const row of dataRows) {
-      const rawSku = row[skuIndex];
-      const rawQty = row[qtyIndex];
-
-      const sku = String(rawSku || "").trim();
-      if (!sku) continue;
-
-      const quantityRequested = Number(rawQty || 0);
-      if (!Number.isFinite(quantityRequested) || quantityRequested <= 0) continue;
-
-      parsedRows.push({
-        sku,
-        productName: "",
-        exist: false,
-        availableQuantity: 0,
-        quantityRequested,
-        fulfilledQuantity: 0,
-        status: "pending",
-        variantId: null,
-      });
+    if (isSpreadsheet) {
+      const result = await parseSpreadsheet(file);
+      if (result.error) {
+        return {
+          mode: "error",
+          error: result.error,
+          customerName,
+          customerId,
+          previewRows: [],
+        };
+      }
+      parsedRows = result.rows;
+    } else {
+      try {
+        parsedRows = await extractRowsWithAI({
+          file: hasFile ? file : null,
+          orderText: hasText ? orderText : "",
+        });
+      } catch (err) {
+        console.error("AI extraction failed:", err);
+        return {
+          mode: "error",
+          error:
+            "Could not read the upload with AI. " +
+            (err.message ||
+              "Please try a clearer file or paste the order as text."),
+          customerName,
+          customerId,
+          previewRows: [],
+        };
+      }
     }
 
     if (parsedRows.length === 0) {
@@ -358,7 +508,7 @@ export const action = async ({ request }) => {
       return {
         mode: "error",
         error:
-          "No valid rows found. Please check that SKU and Quantity columns are filled.",
+          "No valid SKU and quantity pairs were found. Please check the file or pasted text.",
         customerName,
         customerId,
         previewRows: [],
@@ -372,104 +522,9 @@ export const action = async ({ request }) => {
     for (const row of parsedRows) {
       const sku = row.sku;
 
+      let variantNode = null;
       try {
-        const response = await admin.graphql(
-          `#graphql
-          query variantBySku($query: String!) {
-            productVariants(first: 1, query: $query) {
-              edges {
-                node {
-                  id
-                  sku
-                  displayName
-                  product { title }
-                  inventoryItem {
-                    inventoryLevels(first: 10) {
-                      edges {
-                        node {
-                          quantities(names: ["available"]) {
-                            name
-                            quantity
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-          `,
-          {
-            variables: {
-              query: `sku:"${sku}"`,
-            },
-          },
-        );
-
-        const json = await response.json();
-        if (json?.errors?.length) {
-          console.error("GraphQL errors for SKU", sku, json.errors);
-        }
-
-        const edges = json?.data?.productVariants?.edges || [];
-        const variantNode = edges.length > 0 ? edges[0].node : null;
-
-        if (!variantNode) {
-          enrichedRows.push({
-            ...row,
-            exist: false,
-            productName: "* * * * * * *",
-            availableQuantity: 0,
-            fulfilledQuantity: 0,
-            status: "sku not found",
-            variantId: null,
-          });
-          continue;
-        }
-
-        let productName =
-          variantNode.displayName || variantNode.product?.title || `SKU ${sku}`;
-        productName = productName.replace(" - Default Title", "");
-
-        const levelEdges = variantNode.inventoryItem?.inventoryLevels?.edges || [];
-        let totalAvailable = 0;
-
-        for (const edge of levelEdges) {
-          const level = edge?.node;
-          if (!level) continue;
-
-          const quantities = level.quantities || [];
-          const availableEntry = quantities.find((q) => q.name === "available");
-
-          if (availableEntry && typeof availableEntry.quantity === "number") {
-            totalAvailable += availableEntry.quantity;
-          }
-        }
-
-        let fulfilledQuantity = 0;
-        let status = "ok";
-
-        if (totalAvailable <= 0) {
-          fulfilledQuantity = 0;
-          status = "no stock";
-        } else if (row.quantityRequested > totalAvailable) {
-          fulfilledQuantity = totalAvailable;
-          status = "partial";
-        } else {
-          fulfilledQuantity = row.quantityRequested;
-          status = "ok";
-        }
-
-        enrichedRows.push({
-          ...row,
-          exist: true,
-          productName,
-          availableQuantity: totalAvailable,
-          fulfilledQuantity,
-          status,
-          variantId: variantNode.id,
-        });
+        variantNode = await lookupVariantNode(admin, sku);
       } catch (err) {
         console.error(`Error looking up SKU ${sku}`, err);
         enrichedRows.push({
@@ -481,7 +536,64 @@ export const action = async ({ request }) => {
           status: "error",
           variantId: null,
         });
+        continue;
       }
+
+      if (!variantNode) {
+        enrichedRows.push({
+          ...row,
+          exist: false,
+          productName: "* * * * * * *",
+          availableQuantity: 0,
+          fulfilledQuantity: 0,
+          status: "sku not found",
+          variantId: null,
+        });
+        continue;
+      }
+
+      let productName =
+        variantNode.displayName || variantNode.product?.title || `SKU ${sku}`;
+      productName = productName.replace(" - Default Title", "");
+
+      const levelEdges = variantNode.inventoryItem?.inventoryLevels?.edges || [];
+      let totalAvailable = 0;
+
+      for (const edge of levelEdges) {
+        const level = edge?.node;
+        if (!level) continue;
+
+        const quantities = level.quantities || [];
+        const availableEntry = quantities.find((q) => q.name === "available");
+
+        if (availableEntry && typeof availableEntry.quantity === "number") {
+          totalAvailable += availableEntry.quantity;
+        }
+      }
+
+      let fulfilledQuantity = 0;
+      let status = "ok";
+
+      if (totalAvailable <= 0) {
+        fulfilledQuantity = 0;
+        status = "no stock";
+      } else if (row.quantityRequested > totalAvailable) {
+        fulfilledQuantity = totalAvailable;
+        status = "partial";
+      } else {
+        fulfilledQuantity = row.quantityRequested;
+        status = "ok";
+      }
+
+      enrichedRows.push({
+        ...row,
+        exist: true,
+        productName,
+        availableQuantity: totalAvailable,
+        fulfilledQuantity,
+        status,
+        variantId: variantNode.id,
+      });
     }
 
     console.log("PROCESS: enrichedRows count:", enrichedRows.length);
@@ -688,6 +800,10 @@ export default function ImportOrdersIndex() {
   const [previewCancelled, setPreviewCancelled] = useState(false);
   const fileInputRef = useRef(null);
 
+  // Dropzone display state
+  const [fileName, setFileName] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
+
   // ✅ Import History search + pagination (client-side)
   const HISTORY_PAGE_SIZE = 15;
   const [historySearch, setHistorySearch] = useState("");
@@ -702,6 +818,7 @@ export default function ImportOrdersIndex() {
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
+      setFileName("");
     }
   }, [hasSuccess]);
 
@@ -750,6 +867,32 @@ export default function ImportOrdersIndex() {
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+    setFileName("");
+  };
+
+  const handleFileChange = (event) => {
+    const f = event.target.files?.[0];
+    setFileName(f ? f.name : "");
+  };
+
+  const handleDragOver = (event) => {
+    event.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (event) => {
+    event.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (event) => {
+    event.preventDefault();
+    setIsDragging(false);
+    const dropped = event.dataTransfer?.files;
+    if (dropped && dropped.length > 0 && fileInputRef.current) {
+      fileInputRef.current.files = dropped;
+      setFileName(dropped[0].name);
+    }
   };
 
   const showPreview = inPreviewMode && !previewCancelled;
@@ -795,17 +938,41 @@ export default function ImportOrdersIndex() {
       <s-page heading="Import Orders">
         {/* Upload Form */}
         <s-section>
-          <h2
+          <div
             style={{
-              fontSize: "16px",
-              fontWeight: 600,
               marginBottom: "12px",
               borderBottom: "1px solid #ededed",
               paddingBottom: "10px",
             }}
           >
-            Bulk Order Upload
-          </h2>
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                background: "#fff4e8",
+                color: "#b45309",
+                border: "1px solid #ffd9b0",
+                borderRadius: "999px",
+                padding: "3px 10px",
+                fontSize: "11px",
+                fontWeight: 700,
+                letterSpacing: "0.04em",
+                marginBottom: "8px",
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+                <path
+                  d="M11 2 12.6 8.4 19 10l-6.4 1.6L11 18l-1.6-6.4L3 10l6.4-1.6L11 2Z"
+                  fill="#ff8a1f"
+                />
+              </svg>
+              AI POWERED
+            </div>
+            <h2 style={{ fontSize: "16px", fontWeight: 600, margin: 0 }}>
+              AI Quick Order
+            </h2>
+          </div>
 
           {hasError && (
             <div
@@ -831,17 +998,23 @@ export default function ImportOrdersIndex() {
               paddingBottom: "10px",
             }}
           >
-            <div style={{ flex: "1 1 50%" }}>
+            <div style={{ flex: "1 1 100%" }}>
               <s-paragraph>
-                Select a customer and upload a CSV/Excel file with{" "}
+                Select a customer, then upload a{" "}
+                <s-text as="span" emphasis="bold">
+                  CSV, Excel, PDF, image, or Word
+                </s-text>{" "}
+                file — or paste / type the order on the right. AI reads PDFs,
+                images and typed notes and automatically finds the SKUs and
+                quantities. (CSV/Excel keep using simple{" "}
                 <s-text as="span" emphasis="bold">
                   sku
                 </s-text>{" "}
                 and{" "}
                 <s-text as="span" emphasis="bold">
                   quantity
-                </s-text>
-                .
+                </s-text>{" "}
+                columns.)
               </s-paragraph>
 
               <Form method="post" encType="multipart/form-data">
@@ -920,15 +1093,159 @@ export default function ImportOrdersIndex() {
                 </s-box>
 
                 <s-box paddingBlockEnd="base">
-                  <label style={{ display: "block", marginBottom: "0.25rem" }}>
-                    Import file (CSV or Excel)
-                  </label>
-                  <input
-                    type="file"
-                    name="file"
-                    ref={fileInputRef}
-                    accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
-                  />
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "16px",
+                      alignItems: "stretch",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    {/* Left: file dropzone */}
+                    <div style={{ flex: "1 1 280px", minWidth: 0 }}>
+                      <label
+                        style={{
+                          display: "block",
+                          marginBottom: "0.25rem",
+                          fontWeight: 500,
+                        }}
+                      >
+                        Upload your file
+                      </label>
+                      <label
+                        htmlFor="import-file-input"
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onDrop={handleDrop}
+                        style={{
+                          minHeight: "168px",
+                          border: isDragging
+                            ? "2px dashed #ff8a1f"
+                            : "1px dashed #aab0b6",
+                          background: isDragging ? "#fff7ef" : "#fafbfb",
+                          borderRadius: "10px",
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          textAlign: "center",
+                          padding: "18px",
+                          cursor: "pointer",
+                          boxSizing: "border-box",
+                        }}
+                      >
+                        <svg
+                          width="56"
+                          height="46"
+                          viewBox="0 0 68 54"
+                          fill="none"
+                          aria-hidden="true"
+                        >
+                          <path
+                            d="M50 21.5C48.6 13.9 42 8.5 34 8.5c-6.3 0-11.8 3.6-14.6 8.9C13.3 18 8 23.8 8 30.9 8 38.2 13.8 44 21 44h26c6.6 0 12-5.4 12-12a12 12 0 0 0-9-11.5Z"
+                            fill="#f0f2f5"
+                            stroke="#d1d5db"
+                            strokeWidth="1.5"
+                          />
+                          <path
+                            d="M34 38V26"
+                            stroke="#9ca3af"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                          />
+                          <path
+                            d="M27 32l7-7 7 7"
+                            stroke="#9ca3af"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                        {fileName ? (
+                          <strong
+                            style={{
+                              fontSize: "13px",
+                              color: "#1f2024",
+                              marginTop: "10px",
+                              wordBreak: "break-all",
+                            }}
+                          >
+                            {fileName}
+                          </strong>
+                        ) : (
+                          <>
+                            <strong
+                              style={{
+                                fontSize: "13px",
+                                fontWeight: 600,
+                                marginTop: "10px",
+                              }}
+                            >
+                              Drag and drop your file here
+                            </strong>
+                            <span
+                              style={{
+                                fontSize: "13px",
+                                color: "#6d7175",
+                                marginTop: "4px",
+                              }}
+                            >
+                              or click to browse
+                            </span>
+                          </>
+                        )}
+                        <small
+                          style={{
+                            fontSize: "11px",
+                            color: "#8c9196",
+                            marginTop: "10px",
+                          }}
+                        >
+                          CSV, Excel, PDF, JPG, PNG, WEBP, DOC, DOCX
+                        </small>
+                      </label>
+                      <input
+                        id="import-file-input"
+                        type="file"
+                        name="file"
+                        ref={fileInputRef}
+                        onChange={handleFileChange}
+                        accept=".csv, .xls, .xlsx, .pdf, .doc, .docx, .jpg, .jpeg, .png, .webp, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel, application/pdf, image/jpeg, image/png, image/webp"
+                        style={{ display: "none" }}
+                      />
+                    </div>
+
+                    {/* Right: paste / type */}
+                    <div style={{ flex: "1 1 280px", minWidth: 0 }}>
+                      <label
+                        style={{
+                          display: "block",
+                          marginBottom: "0.25rem",
+                          fontWeight: 500,
+                        }}
+                      >
+                        Or paste / type your order
+                      </label>
+                      <textarea
+                        name="orderText"
+                        placeholder={
+                          "Paste SKUs and quantities, one per line\nor separated by commas\n\ne.g. BC-001, 10\nGentle Baby Lotion 250ml x 3"
+                        }
+                        style={{
+                          width: "100%",
+                          minHeight: "168px",
+                          padding: "14px",
+                          borderRadius: "10px",
+                          border: "1px solid #8c9196",
+                          fontSize: "13px",
+                          lineHeight: 1.5,
+                          boxSizing: "border-box",
+                          fontFamily: "inherit",
+                          resize: "vertical",
+                        }}
+                      />
+                    </div>
+                  </div>
                 </s-box>
 
                 <button
@@ -945,34 +1262,9 @@ export default function ImportOrdersIndex() {
                     opacity: isSubmitting ? 0.7 : 1,
                   }}
                 >
-                  {isSubmitting ? "Uploading..." : "Preview order"}
+                  {isSubmitting ? "Processing…" : "Preview order"}
                 </button>
               </Form>
-            </div>
-
-            <div
-              style={{
-                flex: "1 1 50%",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                textAlign: "center",
-              }}
-            >
-              <div style={{ fontWeight: 600, marginBottom: "8px", fontSize: "14px" }}>
-                Excel Format
-              </div>
-              <img
-                src="https://bloomconnect.com.au/cdn/shop/t/13/assets/upload_order_csv.png?v=116619409245202095531739495015"
-                alt="CSV upload format example"
-                style={{
-                  width: "160px",
-                  height: "140px",
-                  objectFit: "contain",
-                  display: "block",
-                }}
-              />
             </div>
           </div>
         </s-section>
