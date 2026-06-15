@@ -1439,17 +1439,20 @@ export default function ImportOrdersIndex() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                marginBottom: "8px",
+                marginBottom: "12px",
                 gap: "16px",
+                color: "#856404",
+                backgroundColor: "#fff3cd",
+                border: "1px solid #ffeeba",
+                borderRadius: "6px",
+                padding: "12px 16px",
               }}
             >
-              <s-paragraph>
+              <span style={{ fontSize: "14px" }}>
                 Review and adjust quantities before creating the order. Only
                 existing SKUs with available inventory are added.
-              </s-paragraph>
-              <span
-                style={{ fontSize: "13px", color: "#6d7175", whiteSpace: "nowrap" }}
-              >
+              </span>
+              <span style={{ fontSize: "13px", whiteSpace: "nowrap" }}>
                 <strong>{editableRows.length}</strong>{" "}
                 item{editableRows.length === 1 ? "" : "s"}
               </span>
