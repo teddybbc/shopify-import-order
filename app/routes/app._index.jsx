@@ -848,6 +848,15 @@ export default function ImportOrdersIndex() {
   const hasError = !!(actionData && actionData.error);
   const hasSuccess = !!createdOrderName;
 
+  // Full-page loading overlay while a form is processing. Stays up through the
+  // submit + revalidation/redirect (formData persists) until the result renders.
+  const busyIntent = navigation.formData?.get("intent");
+  const isBusy = navigation.state !== "idle" && !!busyIntent;
+  const overlayText =
+    busyIntent === "create"
+      ? "Creating your draft order…"
+      : "Reading your order…";
+
   // Customer soft search state (client-side only)
   const [customerQuery, setCustomerQuery] = useState(actionData?.customerName || "");
   const [selectedCustomerId, setSelectedCustomerId] = useState(actionData?.customerId || "");
@@ -1029,6 +1038,43 @@ export default function ImportOrdersIndex() {
 
   return (
     <div style={{ paddingBottom: "30px" }}>
+      <style>{`@keyframes aiqoSpin { to { transform: rotate(360deg); } }`}</style>
+
+      {isBusy && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(255,255,255,0.8)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+          }}
+        >
+          <div
+            style={{
+              width: "50px",
+              height: "50px",
+              border: "5px dotted #1c1c1c",
+              borderRadius: "50%",
+              animation: "aiqoSpin 1s linear infinite",
+            }}
+          />
+          <div
+            style={{
+              marginTop: "16px",
+              fontSize: "14px",
+              fontWeight: 600,
+              color: "#1f2024",
+            }}
+          >
+            {overlayText}
+          </div>
+        </div>
+      )}
+
       <s-page heading="Import Orders">
         {/* Upload Form */}
         <s-section>
