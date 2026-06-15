@@ -1,0 +1,945 @@
+{% comment %} AI Quick Order section {% endcomment %}
+<section class="ai-quick-order page-width" style="margin-top:40px;">
+  <style>
+    .ai-quick-order {
+      font-family: "Poppins", "Inter", "Helvetica Neue", Arial, sans-serif;
+      background: #fff;
+      padding: 48px 20px 36px;
+      color: #1f2024;
+    }
+
+    .aiqo-container {
+      max-width: 1320px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 32% 68%;
+      gap: 34px;
+      align-items: start;
+    }
+
+    .aiqo-label {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: #ff8a1f;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 18px;
+    }
+
+    .aiqo-label img {
+      width: 28px;
+      height: 28px;
+    }
+
+    .aiqo-left h1 {
+      font-size: 48px;
+      line-height: 1.05;
+      letter-spacing: -0.055em;
+      margin: 0 0 18px;
+      font-weight: 700;
+    }
+
+    .aiqo-left h2 {
+      font-size: 31px;
+      line-height: 1.18;
+      letter-spacing: -0.045em;
+      margin: 0 0 25px;
+      font-weight: 500;
+    }
+
+    .aiqo-subtitle {
+      font-size: 19px;
+      margin: 0 0 25px;
+      color: #444850;
+    }
+
+    .aiqo-button {
+      width: 236px;
+      height: 56px;
+      background: linear-gradient(135deg, #ffb35f, #ff9b40);
+      border-radius: 7px;
+      color: #111;
+      text-decoration: none;
+      font-size: 18px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 34px;
+      box-shadow: 0 6px 18px rgba(255, 146, 45, 0.22);
+    }
+
+    .aiqo-button span {
+      font-size: 32px;
+      line-height: 1;
+    }
+
+    .aiqo-benefits {
+      display: flex;
+      margin-top: 42px;
+      flex-wrap: wrap;
+      gap: 18px;
+    }
+
+    .aiqo-benefit {
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      padding-right: 24px;
+      margin-right: 24px;
+      border-right: 1px solid #ddd;
+      font-size: 14px;
+      line-height: 1.25;
+      color: #303136;
+    }
+
+    .aiqo-benefit:last-child {
+      border-right: 0;
+      margin-right: 0;
+      padding-right: 0;
+    }
+
+    .aiqo-card {
+      background: #fff;
+      border: 1px solid #d7d7d7;
+      border-radius: 13px;
+      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
+      overflow: hidden;
+    }
+
+    .aiqo-tabs {
+      padding: 15px 24px 0;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .aiqo-tabs button {
+      background: transparent;
+      border: 0;
+      padding: 0 22px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #222;
+      border-bottom: 3px solid #ff8a1f;
+      cursor: pointer;
+    }
+
+    .aiqo-card-content {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .aiqo-upload-panel {
+      padding: 18px 18px 20px;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .aiqo-upload-row {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+
+    .aiqo-col-upload {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
+    .aiqo-col-paste {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
+    .aiqo-col-paste textarea {
+      width: 100%;
+      min-height: 152px;
+      resize: none;
+      border: 1px solid #ccc;
+      border-radius: 7px;
+      padding: 14px;
+      font-family: inherit;
+      font-size: 12px;
+      line-height: 1.55;
+      color: #555;
+      box-sizing: border-box;
+    }
+
+    .aiqo-submit-row {
+      display: flex;
+      justify-content: center;
+      margin-top: 16px;
+    }
+
+    .aiqo-upload-panel h3,
+    .aiqo-review-panel h3 {
+      font-size: 13px;
+      margin: 0 0 12px;
+      font-weight: 600;
+    }
+
+    .aiqo-dropzone {
+      min-height: 152px;
+      border: 1px dashed #aaa;
+      border-radius: 7px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 18px;
+      cursor: pointer;
+    }
+
+    .aiqo-dropzone img {
+      width: 88px;
+      height: auto;
+      margin-bottom: 12px;
+    }
+
+    .aiqo-dropzone strong {
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .aiqo-dropzone span {
+      font-size: 13px;
+      margin-top: 4px;
+    }
+
+    .aiqo-dropzone small {
+      font-size: 11px;
+      color: #777;
+      margin-top: 10px;
+    }
+
+.aiqo-review-panel {
+      padding: 18px 18px 22px;
+    }
+
+    .aiqo-review-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .aiqo-review-head span {
+      font-size: 11px;
+      color: #555;
+    }
+
+    .aiqo-table-wrap {
+      overflow-x: auto;
+    }
+
+    .aiqo-review-panel table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      min-width: 620px;
+    }
+
+    .aiqo-review-panel th,
+    .aiqo-review-panel td {
+      padding: 9px;
+      border: 1px solid #e1e1e1;
+      vertical-align: middle;
+    }
+
+    .aiqo-review-panel th {
+      text-align: left;
+      background: #fafafa;
+      font-weight: 600;
+    }
+
+    .aiqo-summary {
+      display: flex;
+      justify-content: flex-end;
+      gap: 74px;
+      margin-top: 18px;
+      font-size: 13px;
+    }
+
+    .aiqo-actions {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 65px;
+      margin-top: 18px;
+    }
+
+    .aiqo-actions button,
+    .aiqo-actions a {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .aiqo-actions button {
+      width: 180px;
+      height: 42px;
+      border: 0;
+      border-radius: 5px;
+      background: #202020;
+      color: #fff;
+      cursor: pointer;
+    }
+
+    .aiqo-actions a {
+      color: #444;
+      text-decoration: none;
+    }
+
+    .aiqo-delete-row {
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+      color: #999;
+      padding: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      transition: color 0.15s, background 0.15s;
+    }
+
+    .aiqo-delete-row:hover {
+      color: #cc2a22;
+      background: #fdf2f2;
+    }
+
+    .aiqo-qty-input {
+      width: 62px;
+      padding: 4px 6px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: inherit;
+      text-align: center;
+      appearance: textfield;
+      -moz-appearance: textfield;
+    }
+
+    .aiqo-qty-input::-webkit-inner-spin-button,
+    .aiqo-qty-input::-webkit-outer-spin-button {
+      opacity: 1;
+    }
+
+    .aiqo-qty-input:focus {
+      outline: none;
+      border-color: #ff8a1f;
+    }
+
+    .aiqo-error {
+      color: #cc2a22;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .aiqo-loading {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      margin-top: 16px;
+      color: #444;
+      font-size: 13px;
+    }
+
+    @media (max-width: 767px) {
+      .ai-quick-order {
+        padding: 34px 16px;
+      }
+
+      .aiqo-container {
+        display: block;
+      }
+
+      .aiqo-left {
+        margin-bottom: 34px;
+      }
+
+      .aiqo-left h1 {
+        font-size: 41px;
+      }
+
+      .aiqo-left h2 {
+        font-size: 24px;
+      }
+
+      .aiqo-benefits {
+        display: grid;
+        grid-template-columns: 1fr;
+      }
+
+      .aiqo-upload-row {
+        flex-direction: column;
+      }
+
+.aiqo-actions {
+        flex-direction: column;
+        gap: 18px;
+      }
+
+      .aiqo-actions button {
+        width: 100%;
+      }
+    }
+  </style>
+
+  <div class="aiqo-container">
+    <div class="aiqo-left">
+      <div class="aiqo-label">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M11 2 12.6 8.4 19 10l-6.4 1.6L11 18l-1.6-6.4L3 10l6.4-1.6L11 2Z" fill="#ff8a1f"/>
+          <path d="M18 14l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z" fill="#ff8a1f" opacity=".7"/>
+          <circle cx="5" cy="4.5" r="1.5" fill="#ff8a1f" opacity=".6"/>
+        </svg>
+        <span>AI POWERED</span>
+      </div>
+      <h1>AI Quick Order</h1>
+      <h2>Drop in your order list.<br>We’ll build the cart.</h2>
+      <p class="aiqo-subtitle">Upload CSV, Excel, Image, PDF or paste order notes</p>
+      <a href="#quick-order-upload" class="aiqo-button">Try Quick Order <span>→</span></a>
+      <div class="aiqo-benefits">
+        <div class="aiqo-benefit">
+          <svg width="34" height="34" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="17" cy="17" r="12" stroke="#1f2024" stroke-width="1.8"/>
+            <path d="M17 10v7l4.5 4.5" stroke="#1f2024" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>Save time on<br>repeat orders</span>
+        </div>
+        <div class="aiqo-benefit">
+          <svg width="34" height="34" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M17 5 7 9v8c0 5.8 4.2 11.2 10 12.8C22.8 28.2 27 22.8 27 17V9L17 5Z" stroke="#1f2024" stroke-width="1.8" stroke-linejoin="round"/>
+            <path d="M12.5 17l3.5 3.5 6-6" stroke="#1f2024" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>Fewer errors,<br>more accuracy</span>
+        </div>
+        <div class="aiqo-benefit">
+          <svg width="34" height="34" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M5 6h3.5l3.2 12.2a2 2 0 0 0 1.9 1.3H25a2 2 0 0 0 1.9-1.4L29 11H10.5" stroke="#1f2024" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="14" cy="26.5" r="2" fill="#1f2024"/>
+            <circle cx="24" cy="26.5" r="2" fill="#1f2024"/>
+          </svg>
+          <span>Instant cart<br>creation</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="aiqo-right" id="quick-order-upload">
+      <div class="aiqo-card">
+        <div class="aiqo-tabs">
+          <button class="active" type="button">Upload Order</button>
+        </div>
+        <div class="aiqo-card-content">
+          <div class="aiqo-upload-panel">
+            <form id="form-upload" enctype="multipart/form-data">
+              <div class="aiqo-upload-row">
+                <div class="aiqo-col-upload">
+                  <h3>Upload your file</h3>
+                  <label class="aiqo-dropzone" for="file" id="upload-dropzone">
+                    <svg width="68" height="54" viewBox="0 0 68 54" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                      <path d="M50 21.5C48.6 13.9 42 8.5 34 8.5c-6.3 0-11.8 3.6-14.6 8.9C13.3 18 8 23.8 8 30.9 8 38.2 13.8 44 21 44h26c6.6 0 12-5.4 12-12a12 12 0 0 0-9-11.5Z" fill="#f0f2f5" stroke="#d1d5db" stroke-width="1.5"/>
+                      <path d="M34 38V26" stroke="#9ca3af" stroke-width="2.5" stroke-linecap="round"/>
+                      <path d="M27 32l7-7 7 7" stroke="#9ca3af" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      <path d="M26 44h16" stroke="#d1d5db" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                    <strong>Drag and drop your file here</strong>
+                    <span>or click to browse</span>
+                  </label>
+                  <input id="file" name="file" type="file" accept=".csv,.xls,.xlsx,.pdf,.doc,.docx,.png,.jpg,.jpeg,.webp" style="display:none;">
+                </div>
+                <div class="aiqo-col-paste">
+                  <h3>Or paste order notes</h3>
+                  <textarea id="paste-data" placeholder="Paste SKUs and quantities, one per line&#10;or separated by commas&#10;&#10;e.g. BC-001, 10"></textarea>
+                </div>
+              </div>
+              <div class="aiqo-submit-row">
+                <input id="submit-btn" type="submit" value="Build Cart" style="padding:10px 24px;border-radius:6px;background:#111;color:#fff;border:0;font-weight:700;cursor:pointer;">
+                <div id="parse-method" style="margin-top:10px;font-size:12px;color:#444;display:none;"></div>
+              </div>
+            </form>
+          </div>
+
+          <div class="aiqo-review-panel">
+            <div class="aiqo-review-head">
+              <h3>Review &amp; confirm your order</h3>
+              <span><strong id="total-items">0</strong> items added to cart</span>
+            </div>
+            <div id="error" class="aiqo-error"></div>
+            <div class="aiqo-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>SKU</th>
+                    <th>Product</th>
+                    <th>Requested</th>
+                    <th>Available</th>
+                    <th>Fulfilled Qty</th>
+                    <th>Total Price</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="result"></tbody>
+              </table>
+            </div>
+            <div class="aiqo-summary">
+              <span>Subtotal (ex GST)</span>
+              <strong id="subtotal">$0.00</strong>
+            </div>
+            <div class="aiqo-actions">
+              <button id="add-all-to-cart" type="button">Add all to cart</button>
+              <a href="#" id="clear-all">Clear all</a>
+            </div>
+            <div id="loading" class="aiqo-loading"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Quick Order",
+  "settings": []
+}
+{% endschema %}
+
+<script>
+  window.aiqoCompanyLocationGid = {% if b2b.location %}'gid://shopify/CompanyLocation/{{ b2b.location.id }}'{% else %}''{% endif %};
+  window.aiqoCustomerGid = {% if customer %}'gid://shopify/Customer/{{ customer.id }}'{% else %}''{% endif %};
+  console.log('[AIQO] Company location GID:', window.aiqoCompanyLocationGid || '(not set)');
+  console.log('[AIQO] Customer GID:', window.aiqoCustomerGid || '(not logged in)');
+</script>
+
+<script>
+(function() {
+  const supportedExtensions = ['csv', 'xls', 'xlsx', 'pdf', 'doc', 'docx', 'png', 'jpg', 'jpeg', 'webp'];
+  const localParseExtensions = ['csv'];
+  const aiParseEndpoint = 'https://dev.bloomandgrowgroup.com/index.php?route=bloom/upload/ai_extract';
+  const aiTextEndpoint = aiParseEndpoint;
+  const aiProcessExtensions = supportedExtensions.filter(ext => !localParseExtensions.includes(ext));
+  const fileInput = document.getElementById('file');
+  const dropzone = document.getElementById('upload-dropzone');
+  const errorEl = document.getElementById('error');
+  const loadingEl = document.getElementById('loading');
+  const submitBtn = document.getElementById('submit-btn');
+
+  if (!fileInput || !dropzone || !submitBtn) {
+    return;
+  }
+
+  dropzone.addEventListener('click', function() {
+    fileInput.click();
+  });
+
+  dropzone.addEventListener('dragenter', function(event) {
+    event.preventDefault();
+    dropzone.classList.add('dragover');
+  });
+
+  dropzone.addEventListener('dragover', function(event) {
+    event.preventDefault();
+    dropzone.classList.add('dragover');
+  });
+
+  dropzone.addEventListener('dragleave', function(event) {
+    event.preventDefault();
+    dropzone.classList.remove('dragover');
+  });
+
+  dropzone.addEventListener('drop', function(event) {
+    event.preventDefault();
+    dropzone.classList.remove('dragover');
+    const files = event.dataTransfer.files;
+    if (files && files.length) {
+      const dataTransfer = new DataTransfer();
+      for (let i = 0; i < files.length; i++) {
+        dataTransfer.items.add(files[i]);
+      }
+      fileInput.files = dataTransfer.files;
+      updateDropzoneText(files[0].name);
+    }
+  });
+
+  fileInput.addEventListener('change', function() {
+    const file = fileInput.files[0];
+    if (file) {
+      updateDropzoneText(file.name);
+    }
+  });
+
+  document.getElementById('form-upload').addEventListener('submit', async function(event) {
+    event.preventDefault();
+    clearMessages();
+
+    const file = fileInput.files[0];
+    const pasteText = document.getElementById('paste-data').value.trim();
+
+    if (!file && !pasteText) {
+      showError('Please upload a file or paste order notes.');
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.value = 'Processing...';
+    showLoading(0, 0);
+
+    try {
+      let rows = [];
+      let parseMethod = '';
+
+      if (file) {
+        const extension = getExtension(file.name);
+        if (!supportedExtensions.includes(extension)) {
+          throw 'Unsupported file type. Please upload a supported file.';
+        }
+
+        if (localParseExtensions.includes(extension)) {
+          parseMethod = 'Local CSV parsing';
+          setParseMethod(parseMethod);
+          rows = await parseCsvFile(file);
+        } else if (aiProcessExtensions.includes(extension)) {
+          parseMethod = (extension === 'xls' || extension === 'xlsx') ? 'Server Excel parsing' : 'AI parsing';
+          setParseMethod(parseMethod);
+          rows = await extractRowsWithAI(file);
+        } else {
+          throw 'This file type is not supported for processing.';
+        }
+      } else {
+        rows = parseTextRows(pasteText);
+        parseMethod = rows.length ? 'Local text parsing' : 'AI parsing for pasted notes';
+        setParseMethod(parseMethod);
+
+        if (!rows.length && pasteText) {
+          rows = await extractRowsWithAIFromText(pasteText);
+        }
+      }
+
+      if (!Array.isArray(rows) || rows.length === 0) {
+        throw 'Could not detect any SKU/Quantity pairs. Please use the correct format or try a different file.';
+      }
+
+      renderResults(rows);
+      showLoading(0, rows.length);
+      await processRows(rows);
+      showLoading(rows.length, rows.length, 'Completed');
+    } catch (err) {
+      showError(err.message || err);
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.value = 'Build Cart';
+    }
+  });
+
+  document.getElementById('clear-all').addEventListener('click', function(event) {
+    event.preventDefault();
+    document.getElementById('result').innerHTML = '';
+    document.getElementById('total-items').textContent = '0';
+    document.getElementById('subtotal').textContent = '$0.00';
+    clearMessages();
+  });
+
+  document.getElementById('result').addEventListener('click', function(event) {
+    const btn = event.target.closest('.aiqo-delete-row');
+    if (!btn) return;
+    const tr = btn.closest('tr');
+    if (tr) {
+      tr.remove();
+      const remaining = document.querySelectorAll('#result tr').length;
+      document.getElementById('total-items').textContent = remaining;
+      recalcSubtotal();
+    }
+  });
+
+  document.getElementById('result').addEventListener('input', function(event) {
+    const input = event.target.closest('.aiqo-qty-input');
+    if (!input) return;
+    const tr = input.closest('tr');
+    if (!tr) return;
+
+    const newReqQty = Math.max(1, parseInt(input.value, 10) || 0);
+    const availableQty = parseInt(tr.dataset.availableQty || '0', 10);
+    const unitPrice = parseFloat(tr.dataset.unitPrice || '0');
+
+    const fulfilledQty = availableQty > 0 ? Math.min(availableQty, newReqQty) : 0;
+    tr.children[4].textContent = fulfilledQty;
+    tr.children[5].textContent = fulfilledQty > 0 && unitPrice > 0 ? '$' + (fulfilledQty * unitPrice).toFixed(2) : '–';
+
+    recalcSubtotal();
+  });
+
+  function recalcSubtotal() {
+    let total = 0;
+    document.querySelectorAll('#result tr').forEach(function(tr) {
+      const cell = tr.children[5] ? tr.children[5].textContent : '';
+      if (cell && cell.startsWith('$')) total += parseFloat(cell.slice(1)) || 0;
+    });
+    const subtotalEl = document.getElementById('subtotal');
+    if (subtotalEl) subtotalEl.textContent = '$' + total.toFixed(2);
+  }
+
+  document.getElementById('add-all-to-cart').addEventListener('click', function() {
+    const btn = this;
+    const items = [];
+
+    document.querySelectorAll('#result tr').forEach(function(tr) {
+      const priceText = tr.children[5] ? tr.children[5].textContent : '';
+      const variantId = tr.dataset.variantId;
+      const qty = parseInt(tr.children[4] ? tr.children[4].textContent : '0', 10);
+      if (priceText.startsWith('$') && variantId && qty > 0) {
+        items.push({ id: parseInt(variantId, 10), quantity: qty });
+      }
+    });
+
+    if (!items.length) {
+      window.location.href = '/cart';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Adding…';
+
+    fetch(window.Shopify.routes.root + 'cart/add.js', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: items })
+    }).finally(function() {
+      window.location.href = '/cart';
+    });
+  });
+
+  function showError(message) {
+    errorEl.textContent = message;
+    errorEl.style.display = 'block';
+  }
+
+  function clearMessages() {
+    errorEl.style.display = 'none';
+    errorEl.textContent = '';
+    loadingEl.style.display = 'none';
+    loadingEl.innerHTML = '';
+  }
+
+  function showLoading(current, total, completeText) {
+    if (typeof current === 'number' && typeof total === 'number') {
+      loadingEl.innerHTML = '<span id="loading-counter">' + current + '</span> of <span id="loading-total">' + total + '</span> <span id="loading-complete">' + (completeText || '') + '</span>';
+    } else {
+      loadingEl.innerHTML = current || '';
+    }
+    loadingEl.style.display = 'flex';
+  }
+
+  function updateLoadingCounter(value) {
+    const counter = document.getElementById('loading-counter');
+    if (counter) {
+      counter.textContent = value;
+    }
+  }
+
+  function updateDropzoneText(name) {
+    dropzone.querySelector('strong').textContent = name;
+  }
+
+  function getExtension(filename) {
+    return (filename || '').split('.').pop().toLowerCase();
+  }
+
+  function parseCsvFile(file) {
+    return new Promise(function(resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        resolve(parseTextRows(event.target.result));
+      };
+      reader.onerror = function() {
+        reject('Unable to read CSV file.');
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  async function extractRowsWithAI(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('source', 'quick-order-ai');
+
+    const response = await fetch(aiParseEndpoint, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      throw 'AI extraction failed. Please try again.';
+    }
+
+    const result = await response.json();
+
+    if (result.error) {
+      throw result.error;
+    }
+
+    if (!Array.isArray(result.rows) || result.rows.length === 0) {
+      throw 'The AI parser could not extract any orders from the file.';
+    }
+
+    return result.rows.map(normalizeParsedRow).filter(Boolean);
+  }
+
+  async function extractRowsWithAIFromText(text) {
+    const formData = new FormData();
+    formData.append('order_text', text);
+    formData.append('source', 'quick-order-ai');
+
+    const response = await fetch(aiTextEndpoint, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      throw 'AI text extraction failed. Please try again.';
+    }
+
+    const result = await response.json();
+
+    if (result.error) {
+      throw result.error;
+    }
+
+    if (!Array.isArray(result.rows) || result.rows.length === 0) {
+      throw 'The AI parser could not extract any orders from the pasted notes.';
+    }
+
+    return result.rows.map(normalizeParsedRow).filter(Boolean);
+  }
+
+  function setParseMethod(text) {
+    const methodEl = document.getElementById('parse-method');
+    if (!methodEl) return;
+    methodEl.textContent = text || '';
+    methodEl.style.display = text ? 'block' : 'none';
+  }
+
+  function parseTextRows(text) {
+    const rows = [];
+    const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+
+    lines.forEach(line => {
+      const cleaned = line.replace(/\t/g, ' ').replace(/\u00A0/g, ' ').trim();
+      const parts = cleaned.split(',').map(part => part.trim()).filter(Boolean);
+      let sku = null;
+      let qty = null;
+
+      if (parts.length >= 2) {
+        sku = parts[0];
+        qty = parseInt(parts[1].replace(/[^0-9]/g, ''), 10);
+      } else {
+        const alt = cleaned.split(/\s+/);
+        if (alt.length >= 2) {
+          sku = alt[0];
+          qty = parseInt(alt[1].replace(/[^0-9]/g, ''), 10);
+        }
+      }
+
+      if (sku && qty > 0) {
+        rows.push({ sku: sku, quantity: qty });
+      }
+    });
+
+    return rows;
+  }
+
+  function normalizeParsedRow(row) {
+    if (!row || !row.sku) return null;
+    const sku = String(row.sku).trim();
+    const quantity = parseInt(row.quantity || row.qty || row.quantityRequested || 0, 10) || 0;
+    return sku && quantity > 0 ? { sku, quantity } : null;
+  }
+
+  function renderResults(rows) {
+    const resultBody = document.getElementById('result');
+    resultBody.innerHTML = '';
+    document.getElementById('total-items').textContent = rows.length;
+
+    rows.forEach(row => {
+      const tr = document.createElement('tr');
+      tr.dataset.variantId = '';
+      tr.innerHTML = '<td>' + escapeHtml(row.sku) + '</td>' +
+        '<td>Loading…</td>' +
+        '<td><input type="number" class="aiqo-qty-input" value="' + row.quantity + '" min="1"></td>' +
+        '<td>–</td>' +
+        '<td>–</td>' +
+        '<td>–</td>' +
+        '<td><button type="button" class="aiqo-delete-row" aria-label="Remove row">' +
+          '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+          '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>' +
+          '<path d="M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' +
+          '</svg></button></td>';
+      resultBody.appendChild(tr);
+    });
+  }
+
+  function processRows(rows) {
+    let index = 0;
+
+    return rows.reduce((promise, row) => {
+      return promise.then(() => {
+        return getProductInventoryStatus(row.sku, row.quantity).finally(function() {
+          index += 1;
+          updateLoadingCounter(index);
+        });
+      });
+    }, Promise.resolve());
+  }
+
+  function escapeHtml(value) {
+    const div = document.createElement('div');
+    div.textContent = value;
+    return div.innerHTML;
+  }
+
+  function getProductInventoryStatus(sku, requested_qty) {
+    return fetch('https://dev.bloomandgrowgroup.com/index.php?route=bloom/upload/getProductInventoryStatus&country={{settings.shopify_country_code}}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sku: sku, qty: requested_qty, company_location_id: window.aiqoCompanyLocationGid || '', customer_id: window.aiqoCustomerGid || '' })
+    })
+    .then(response => response.json())
+    .then(data => {
+      const product = data && data.product && data.product[0] ? data.product[0] : {};
+      const price = parseFloat(product.price || 0) || 0;
+      const availableQty = parseInt(product.inventory || 0, 10) || 0;
+      const acceptedQty = data.status === 'AVAILABLE' ? Math.min(availableQty, requested_qty) : 0;
+
+      console.log('[AIQO] Inventory response for', sku, ':', JSON.stringify(data));
+      updateResultRow(sku, product.title || 'ITEM NOT FOUND', price, requested_qty, acceptedQty, availableQty, product.shopify_product_id || '');
+    })
+    .catch(() => {
+      document.querySelectorAll('#result tr').forEach(tr => {
+        if (tr.firstChild && tr.firstChild.textContent === sku) {
+          tr.children[1].textContent = 'Unable to load product';
+        }
+      });
+    });
+  }
+
+  function updateResultRow(sku, title, price, requested_qty, accepted_qty, available_qty, variant_id) {
+    const rows = document.querySelectorAll('#result tr');
+    rows.forEach(tr => {
+      if (tr.firstChild && tr.firstChild.textContent === sku) {
+        tr.children[1].textContent = title;
+        tr.children[3].textContent = available_qty;
+        tr.children[4].textContent = accepted_qty;
+        tr.children[5].textContent = accepted_qty > 0 && price > 0 ? '$' + (accepted_qty * price).toFixed(2) : '–';
+        if (variant_id) tr.dataset.variantId = variant_id;
+        tr.dataset.unitPrice = price;
+        tr.dataset.availableQty = available_qty;
+      }
+    });
+
+    recalcSubtotal();
+  }
+
+})();
+</script>

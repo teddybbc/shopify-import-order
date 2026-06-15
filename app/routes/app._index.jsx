@@ -149,25 +149,37 @@ async function getB2BContext(admin, customerGid) {
 const OC_AI_EXTRACT_URL =
   "https://dev.bloomandgrowgroup.com/index.php?route=bloom/import_order/ai_extract";
 
-// Shared GraphQL selection for a variant + its available inventory.
-const VARIANT_FIELDS = `
-  id
-  sku
-  displayName
-  product { title }
-  inventoryItem {
-    inventoryLevels(first: 10) {
-      edges {
-        node {
-          quantities(names: ["available"]) {
-            name
-            quantity
+// GraphQL selection for a variant + inventory + price. When a B2B company
+// location is supplied (withContextual), also pull that location's catalog
+// (contextual) price — the same price the storefront shows for the customer.
+function variantFields(withContextual) {
+  return `
+    id
+    sku
+    displayName
+    price
+    product { title }
+    inventoryItem {
+      inventoryLevels(first: 10) {
+        edges {
+          node {
+            quantities(names: ["available"]) {
+              name
+              quantity
+            }
           }
         }
       }
     }
-  }
-`;
+    ${
+      withContextual
+        ? `contextualPricing(context: { companyLocationId: $loc }) {
+             price { amount }
+           }`
+        : ""
+    }
+  `;
+}
 
 /** Standard preview-row shape used by both the spreadsheet and AI paths. */
 function makeParsedRow(sku, quantityRequested) {
@@ -184,8 +196,10 @@ function makeParsedRow(sku, quantityRequested) {
 }
 
 /**
- * Parse a CSV/Excel file locally with SheetJS. Requires a header row with
- * `sku` and `quantity` (or `qty`) columns. Returns { rows } or { error }.
+ * Parse a CSV/Excel file locally with SheetJS. A header row is optional: if the
+ * first row looks like headers (sku/product + qty/quantity) those columns are
+ * used; otherwise the first row is treated as data with column 1 = SKU and
+ * column 2 = quantity. Returns { rows } or { error }.
  */
 async function parseSpreadsheet(file) {
   let workbook;
@@ -209,21 +223,31 @@ async function parseSpreadsheet(file) {
     return { error: "The file is empty." };
   }
 
-  const headerRow = rows[0].map((h) => String(h).trim().toLowerCase());
-  const skuIndex = headerRow.findIndex((h) => h === "sku");
-  const qtyIndex = headerRow.findIndex((h) => h === "quantity" || h === "qty");
+  // Optional header detection. Only treat row 1 as a header when it clearly
+  // names both an SKU/product and a qty/quantity column — otherwise assume a
+  // headerless file (col 1 = SKU, col 2 = quantity) and read every row.
+  const firstRow = rows[0].map((h) => String(h).trim().toLowerCase());
+  const headerSku = firstRow.findIndex(
+    (h) => h.includes("sku") || h.includes("product"),
+  );
+  const headerQty = firstRow.findIndex(
+    (h) => h.includes("qty") || h.includes("quantity"),
+  );
+  const hasHeader = headerSku !== -1 && headerQty !== -1;
 
-  if (skuIndex === -1 || qtyIndex === -1) {
-    return {
-      error: "Header row must contain 'sku' and 'quantity' (or 'qty') columns.",
-    };
-  }
+  const skuIndex = hasHeader ? headerSku : 0;
+  const qtyIndex = hasHeader ? headerQty : 1;
+  const dataRows = hasHeader ? rows.slice(1) : rows;
 
   const parsed = [];
-  for (const row of rows.slice(1)) {
+  for (const row of dataRows) {
     const sku = String(row[skuIndex] || "").trim();
     if (!sku) continue;
-    const quantityRequested = Number(row[qtyIndex] || 0);
+    // Strip any non-numeric noise (e.g. "10 pcs") like the PHP CSV parser does.
+    const quantityRequested = parseInt(
+      String(row[qtyIndex] ?? "").replace(/[^0-9]/g, ""),
+      10,
+    );
     if (!Number.isFinite(quantityRequested) || quantityRequested <= 0) continue;
     parsed.push(makeParsedRow(sku, quantityRequested));
   }
@@ -276,18 +300,28 @@ async function extractRowsWithAI({ file, orderText }) {
 /**
  * Look up a variant by SKU. AI extraction can return a product *name* when no
  * SKU is printed, so fall back to a product title search for multi-word values.
+ * When companyLocationId is provided, the returned node includes the catalog
+ * (contextual) price for that B2B location.
  */
-async function lookupVariantNode(admin, identifier) {
+async function lookupVariantNode(admin, identifier, companyLocationId) {
+  const withCtx = !!companyLocationId;
+  const fields = variantFields(withCtx);
+  const locDecl = withCtx ? ", $loc: ID!" : "";
+
   // 1) Precise SKU match.
   try {
     const resp = await admin.graphql(
       `#graphql
-      query variantBySku($query: String!) {
+      query variantBySku($query: String!${locDecl}) {
         productVariants(first: 1, query: $query) {
-          edges { node { ${VARIANT_FIELDS} } }
+          edges { node { ${fields} } }
         }
       }`,
-      { variables: { query: `sku:"${identifier}"` } },
+      {
+        variables: withCtx
+          ? { query: `sku:"${identifier}"`, loc: companyLocationId }
+          : { query: `sku:"${identifier}"` },
+      },
     );
     const json = await resp.json();
     if (json?.errors?.length) {
@@ -304,14 +338,18 @@ async function lookupVariantNode(admin, identifier) {
     try {
       const resp = await admin.graphql(
         `#graphql
-        query variantByName($query: String!) {
+        query variantByName($query: String!${locDecl}) {
           products(first: 1, query: $query) {
             edges {
-              node { variants(first: 1) { edges { node { ${VARIANT_FIELDS} } } } }
+              node { variants(first: 1) { edges { node { ${fields} } } } }
             }
           }
         }`,
-        { variables: { query: identifier } },
+        {
+          variables: withCtx
+            ? { query: identifier, loc: companyLocationId }
+            : { query: identifier },
+        },
       );
       const json = await resp.json();
       if (json?.errors?.length) {
@@ -326,6 +364,15 @@ async function lookupVariantNode(admin, identifier) {
   }
 
   return null;
+}
+
+/** Resolve the unit price for a variant node — catalog price if present, else base. */
+function resolveUnitPrice(variantNode) {
+  const ctx = variantNode?.contextualPricing?.price?.amount;
+  const ctxPrice = ctx != null ? Number(ctx) : NaN;
+  if (Number.isFinite(ctxPrice) && ctxPrice > 0) return ctxPrice;
+  const base = Number(variantNode?.price);
+  return Number.isFinite(base) ? base : 0;
 }
 
 /**
@@ -517,6 +564,11 @@ export const action = async ({ request }) => {
 
     console.log("PROCESS: parsedRows count:", parsedRows.length);
 
+    // Resolve the customer's B2B company location so the preview can show the
+    // catalog price they'll actually be charged (mirrors the storefront).
+    const { companyLocationId } = await getB2BContext(admin, customerId);
+    console.log("PROCESS: companyLocationId:", companyLocationId || "(none / DTC)");
+
     const enrichedRows = [];
 
     for (const row of parsedRows) {
@@ -524,7 +576,7 @@ export const action = async ({ request }) => {
 
       let variantNode = null;
       try {
-        variantNode = await lookupVariantNode(admin, sku);
+        variantNode = await lookupVariantNode(admin, sku, companyLocationId);
       } catch (err) {
         console.error(`Error looking up SKU ${sku}`, err);
         enrichedRows.push({
@@ -585,6 +637,8 @@ export const action = async ({ request }) => {
         status = "ok";
       }
 
+      const unitPrice = resolveUnitPrice(variantNode);
+
       enrichedRows.push({
         ...row,
         exist: true,
@@ -593,6 +647,7 @@ export const action = async ({ request }) => {
         fulfilledQuantity,
         status,
         variantId: variantNode.id,
+        unitPrice,
       });
     }
 
@@ -603,6 +658,7 @@ export const action = async ({ request }) => {
       customerName,
       customerId,
       previewRows: enrichedRows,
+      usingCatalogPrice: !!companyLocationId,
     };
   }
 
@@ -804,6 +860,9 @@ export default function ImportOrdersIndex() {
   const [fileName, setFileName] = useState("");
   const [isDragging, setIsDragging] = useState(false);
 
+  // Editable preview rows (qty edits, row removal, live totals)
+  const [editableRows, setEditableRows] = useState([]);
+
   // ✅ Import History search + pagination (client-side)
   const HISTORY_PAGE_SIZE = 15;
   const [historySearch, setHistorySearch] = useState("");
@@ -824,6 +883,13 @@ export default function ImportOrdersIndex() {
 
   useEffect(() => {
     setPreviewCancelled(false);
+  }, [actionData]);
+
+  // Seed editable preview rows whenever a new preview arrives
+  useEffect(() => {
+    if (actionData?.mode === "preview" && Array.isArray(actionData.previewRows)) {
+      setEditableRows(actionData.previewRows.map((r) => ({ ...r })));
+    }
   }, [actionData]);
 
   // Reset pagination whenever search changes
@@ -894,6 +960,34 @@ export default function ImportOrdersIndex() {
       setFileName(dropped[0].name);
     }
   };
+
+  // Edit requested qty in the preview → recompute fulfilled (capped at available)
+  const handleQtyChange = (idx, value) => {
+    setEditableRows((prev) =>
+      prev.map((row, i) => {
+        if (i !== idx) return row;
+        const requested = Math.max(1, parseInt(value, 10) || 1);
+        const available = Number(row.availableQuantity || 0);
+        const fulfilled = available > 0 ? Math.min(available, requested) : 0;
+        return { ...row, quantityRequested: requested, fulfilledQuantity: fulfilled };
+      }),
+    );
+  };
+
+  const handleDeleteRow = (idx) => {
+    setEditableRows((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  // Subtotal mirrors the storefront: sum of fulfilled × unit (catalog) price
+  const previewSubtotal = useMemo(
+    () =>
+      editableRows.reduce((sum, row) => {
+        const unit = Number(row.unitPrice || 0);
+        const qty = Number(row.fulfilledQuantity || 0);
+        return unit > 0 && qty > 0 ? sum + unit * qty : sum;
+      }, 0),
+    [editableRows],
+  );
 
   const showPreview = inPreviewMode && !previewCancelled;
   const showHistory = !inPreviewMode || previewCancelled;
@@ -1000,21 +1094,8 @@ export default function ImportOrdersIndex() {
           >
             <div style={{ flex: "1 1 100%" }}>
               <s-paragraph>
-                Select a customer, then upload a{" "}
-                <s-text as="span" emphasis="bold">
-                  CSV, Excel, PDF, image, or Word
-                </s-text>{" "}
-                file — or paste / type the order on the right. AI reads PDFs,
-                images and typed notes and automatically finds the SKUs and
-                quantities. (CSV/Excel keep using simple{" "}
-                <s-text as="span" emphasis="bold">
-                  sku
-                </s-text>{" "}
-                and{" "}
-                <s-text as="span" emphasis="bold">
-                  quantity
-                </s-text>{" "}
-                columns.)
+                Select a customer, then upload a file or paste the order. AI
+                reads it and finds the SKUs and quantities for you.
               </s-paragraph>
 
               <Form method="post" encType="multipart/form-data">
@@ -1283,25 +1364,42 @@ export default function ImportOrdersIndex() {
               Preview
             </h2>
 
-            <s-paragraph>
-              Review the items before creating the order. Only existing SKUs with available
-              inventory will be added.
-            </s-paragraph>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "8px",
+                gap: "16px",
+              }}
+            >
+              <s-paragraph>
+                Review and adjust quantities before creating the order. Only
+                existing SKUs with available inventory are added.
+              </s-paragraph>
+              <span
+                style={{ fontSize: "13px", color: "#6d7175", whiteSpace: "nowrap" }}
+              >
+                <strong>{editableRows.length}</strong>{" "}
+                item{editableRows.length === 1 ? "" : "s"}
+              </span>
+            </div>
 
             <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
               <table width="100%" cellPadding={6} style={{ borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
                     <th style={{ textAlign: "left" }}>SKU</th>
-                    <th style={{ textAlign: "left" }}>Product Name</th>
+                    <th style={{ textAlign: "left" }}>Product</th>
+                    <th style={{ textAlign: "left", width: "110px" }}>Requested</th>
                     <th style={{ textAlign: "left" }}>Available</th>
-                    <th style={{ textAlign: "left" }}>Requested</th>
-                    <th style={{ textAlign: "left" }}>Fulfilled</th>
-                    <th style={{ textAlign: "left", width: "100px" }}>Status</th>
+                    <th style={{ textAlign: "left" }}>Fulfilled Qty</th>
+                    <th style={{ textAlign: "left" }}>Total Price</th>
+                    <th style={{ width: "40px" }}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {actionData.previewRows.map((row, idx) => {
+                  {editableRows.map((row, idx) => {
                     const isNotFound = row.status === "sku not found" || row.status === "error";
                     const isNoStock = row.status === "no stock";
 
@@ -1309,8 +1407,11 @@ export default function ImportOrdersIndex() {
                     if (isNotFound) textColor = "#ff0000";
                     else if (isNoStock) textColor = "#aaaaaa";
 
-                    const isOddRow = idx % 2 === 0;
-                    const backgroundColor = isOddRow ? "#ffffff" : "#f7f7f7";
+                    const backgroundColor = idx % 2 === 0 ? "#ffffff" : "#f7f7f7";
+
+                    const unit = Number(row.unitPrice || 0);
+                    const fulfilled = Number(row.fulfilledQuantity || 0);
+                    const lineTotal = unit > 0 && fulfilled > 0 ? unit * fulfilled : 0;
 
                     return (
                       <tr key={idx} style={{ backgroundColor, color: textColor }}>
@@ -1318,16 +1419,87 @@ export default function ImportOrdersIndex() {
                         <td style={{ textAlign: "left" }}>
                           {row.productName || "* * * * * * *"}
                         </td>
+                        <td style={{ textAlign: "left" }}>
+                          <input
+                            type="number"
+                            min="1"
+                            value={row.quantityRequested}
+                            onChange={(e) => handleQtyChange(idx, e.target.value)}
+                            disabled={isNotFound}
+                            style={{
+                              width: "70px",
+                              padding: "4px 6px",
+                              border: "1px solid #c9cccf",
+                              borderRadius: "6px",
+                              fontSize: "13px",
+                              textAlign: "center",
+                            }}
+                          />
+                        </td>
                         <td style={{ textAlign: "left" }}>{row.availableQuantity}</td>
-                        <td style={{ textAlign: "left" }}>{row.quantityRequested}</td>
-                        <td style={{ textAlign: "left" }}>{row.fulfilledQuantity}</td>
-                        <td style={{ textAlign: "left" }}>{row.status}</td>
+                        <td style={{ textAlign: "left" }}>{fulfilled}</td>
+                        <td style={{ textAlign: "left" }}>
+                          {lineTotal > 0 ? "$" + lineTotal.toFixed(2) : "–"}
+                        </td>
+                        <td style={{ textAlign: "center" }}>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteRow(idx)}
+                            aria-label="Remove row"
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              cursor: "pointer",
+                              color: "#999",
+                              fontSize: "18px",
+                              lineHeight: 1,
+                            }}
+                          >
+                            ×
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  alignItems: "center",
+                  gap: "24px",
+                  marginTop: "14px",
+                  paddingTop: "12px",
+                  borderTop: "1px solid #e1e1e1",
+                }}
+              >
+                <span style={{ fontSize: "13px", color: "#444" }}>
+                  Subtotal (ex GST)
+                </span>
+                <strong style={{ fontSize: "15px" }}>
+                  ${previewSubtotal.toFixed(2)}
+                </strong>
+              </div>
             </s-box>
+
+            {actionData.usingCatalogPrice ? (
+              <s-paragraph>
+                <s-text tone="subdued">
+                  Prices shown are this customer&apos;s B2B catalog price for
+                  their company location. The draft order will use the same
+                  catalog pricing.
+                </s-text>
+              </s-paragraph>
+            ) : (
+              <s-paragraph>
+                <s-text tone="subdued">
+                  This customer has no B2B company location, so standard product
+                  prices are shown.
+                </s-text>
+              </s-paragraph>
+            )}
 
             <div style={{ marginTop: "20px" }}>
               <s-box style={{ marginTop: "20px", textAlign: "center" }}>
@@ -1336,7 +1508,7 @@ export default function ImportOrdersIndex() {
                     <input type="hidden" name="intent" value="create" />
                     <input type="hidden" name="customerName" value={actionData.customerName || ""} />
                     <input type="hidden" name="customerId" value={actionData.customerId || ""} />
-                    <input type="hidden" name="previewJson" value={JSON.stringify(actionData.previewRows || [])} />
+                    <input type="hidden" name="previewJson" value={JSON.stringify(editableRows)} />
 
                     <s-button type="submit" variant="primary" {...(isSubmitting ? { loading: true } : {})}>
                       <span style={{ display: "inline-block", padding: "3px 5px", fontSize: "14px" }}>
