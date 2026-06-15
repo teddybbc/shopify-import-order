@@ -149,6 +149,30 @@ async function getB2BContext(admin, customerGid) {
 const OC_AI_EXTRACT_URL =
   "https://dev.bloomandgrowgroup.com/index.php?route=bloom/import_order/ai_extract";
 
+/**
+ * fetch() to the OC backend with retries. The Cloudflare-fronted host
+ * intermittently drops the HTTP/2 connection with a GOAWAY frame, which
+ * undici surfaces as "fetch failed". A retry on a fresh connection recovers.
+ */
+async function ocFetch(url, options, retries = 2) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fetch(url, options);
+    } catch (err) {
+      lastErr = err;
+      console.warn(
+        `ocFetch attempt ${attempt + 1}/${retries + 1} failed for ${url}:`,
+        err?.cause?.message || err?.message || err,
+      );
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 // GraphQL selection for a variant + inventory + price. When a B2B company
 // location is supplied (withContextual), also pull that location's catalog
 // (contextual) price — the same price the storefront shows for the customer.
@@ -264,7 +288,7 @@ async function extractRowsWithAI({ file, orderText }) {
   if (file) aiForm.append("file", file, file.name);
   if (orderText) aiForm.append("order_text", orderText);
 
-  const resp = await fetch(OC_AI_EXTRACT_URL, {
+  const resp = await ocFetch(OC_AI_EXTRACT_URL, {
     method: "POST",
     body: aiForm,
   });
@@ -428,7 +452,7 @@ export const loader = async ({ request }) => {
   let customers = [];
   if (shopNumericId) {
     try {
-      const ocResp = await fetch(
+      const ocResp = await ocFetch(
         "https://dev.bloomandgrowgroup.com/index.php?route=bloom/import_order/getCustomers",
         {
           method: "POST",
@@ -736,7 +760,7 @@ export const action = async ({ request }) => {
     let draftOrder = null;
 
     try {
-      const ocResp = await fetch(
+      const ocResp = await ocFetch(
         "https://dev.bloomandgrowgroup.com/index.php?route=bloom/import_order/DraftOrderCreate",
         {
           method: "POST",
