@@ -1,76 +1,87 @@
-// app/routes/api.customers.jsx
+// app/routes/app.customers.jsx  →  GET /app/customers?q=...
+//
+// Customer search for the Import Order picker. Reads straight from Shopify
+// (customers + B2B companies), so it no longer depends on the retired
+// dev.bloomandgrowgroup.com getCustomers endpoint.
 
 import { authenticate } from "../shopify.server";
 
-export const loader = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
-
-  const url = new URL(request.url);
-  const qRaw = url.searchParams.get("q") || "";
-  const q = qRaw.trim();
-
-  if (!q || q.length < 2) {
-    return new Response(JSON.stringify({ customers: [] }), {
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
-  try {
-    const response = await admin.graphql(
-      `#graphql
-      query CustomersSearch($query: String!) {
-        customers(first: 10, query: $query) {
-          edges {
-            node {
+const SEARCH_QUERY = `#graphql
+  query CustomerPickerSearch($query: String!) {
+    customers(first: 10, query: $query) {
+      nodes {
+        id
+        displayName
+        defaultEmailAddress { emailAddress }
+        companyContactProfiles { company { name } }
+      }
+    }
+    companies(first: 10, query: $query) {
+      nodes {
+        name
+        contacts(first: 5) {
+          nodes {
+            customer {
               id
               displayName
-              email
+              defaultEmailAddress { emailAddress }
             }
           }
         }
       }
-      `,
-      {
-        variables: {
-          query: q,
-        },
-      },
-    );
+    }
+  }
+`;
 
-    const json = await response.json();
+const json = (body, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 
-    if (json.errors && json.errors.length > 0) {
-      console.error("GraphQL errors in customers search", json.errors);
-      return new Response(
-        JSON.stringify({ customers: [], error: "GraphQL error" }),
-        {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        },
-      );
+export const loader = async ({ request }) => {
+  const { admin } = await authenticate.admin(request);
+
+  const q = (new URL(request.url).searchParams.get("q") || "").trim();
+  if (q.length < 2) return json({ customers: [] });
+
+  try {
+    const response = await admin.graphql(SEARCH_QUERY, {
+      variables: { query: q },
+    });
+    const body = await response.json();
+
+    if (body.errors?.length) {
+      console.error("GraphQL errors in customer search", body.errors);
+      return json({ customers: [], error: "GraphQL error" }, 500);
     }
 
-    const edges = json?.data?.customers?.edges || [];
-    const customers = edges.map((edge) => {
-      const node = edge.node;
-      return {
-        id: node.id,
-        displayName: node.displayName || "",
-        email: node.email || "",
-      };
-    });
+    // Merge customers found directly with contacts of matching companies,
+    // de-duplicated by customer id. Company matches come first because B2B
+    // staff usually type the shop/company name.
+    const byId = new Map();
+    const add = (customer, companyName) => {
+      if (!customer?.id || byId.has(customer.id)) return;
+      byId.set(customer.id, {
+        id: customer.id,
+        displayName: customer.displayName || "",
+        email: customer.defaultEmailAddress?.emailAddress || "",
+        companyName: companyName || "",
+      });
+    };
 
-    return new Response(JSON.stringify({ customers }), {
-      headers: { "Content-Type": "application/json" },
-    });
+    for (const company of body?.data?.companies?.nodes || []) {
+      for (const contact of company.contacts?.nodes || []) {
+        add(contact.customer, company.name);
+      }
+    }
+    for (const customer of body?.data?.customers?.nodes || []) {
+      add(customer, customer.companyContactProfiles?.[0]?.company?.name);
+    }
+
+    return json({ customers: Array.from(byId.values()).slice(0, 15) });
   } catch (err) {
     console.error("Error searching customers", err);
-    return new Response(
-      JSON.stringify({ customers: [], error: "Server error" }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      },
-    );
+    return json({ customers: [], error: "Server error" }, 500);
   }
 };

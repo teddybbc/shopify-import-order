@@ -6,6 +6,7 @@ import {
   useActionData,
   useLoaderData,
   useNavigation,
+  useFetcher,
   redirect,
 } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -400,7 +401,8 @@ function resolveUnitPrice(variantNode) {
 }
 
 /**
- * Loader: authenticate admin + load history from Prisma (per shopId) + preload customers via OC
+ * Loader: authenticate admin + load history from Prisma (per shopId).
+ * Customers are searched live from Shopify via /app/customers (see app.customers.jsx).
  */
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
@@ -449,50 +451,7 @@ export const loader = async ({ request }) => {
     console.warn("No shopNumericId resolved in loader; skipping history query.");
   }
 
-  let customers = [];
-  if (shopNumericId) {
-    try {
-      const ocResp = await ocFetch(
-        "https://dev.bloomandgrowgroup.com/index.php?route=bloom/import_order/getCustomers",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            shop_id: shopNumericId,
-            limit: 250,
-          }),
-        },
-      );
-
-      if (!ocResp.ok) {
-        const txt = await ocResp.text();
-        console.error(
-          "OC getCustomers HTTP error:",
-          ocResp.status,
-          ocResp.statusText,
-          txt,
-        );
-      }
-
-      const ocJson = await ocResp.json().catch((e) => {
-        console.error("OC getCustomers: failed to parse JSON", e);
-        return null;
-      });
-
-      if (ocJson && ocJson.success) {
-        customers = Array.isArray(ocJson.customers) ? ocJson.customers : [];
-        console.log("OC customers count:", customers.length);
-      } else {
-        console.error("OC customers error:", ocJson?.error || "Unknown error", ocJson);
-      }
-    } catch (err) {
-      console.error("Failed to fetch customers from OC:", err);
-    }
-  }
-
-  return { history, customers, shopAdminSubdomain, createdOrderName };
+  return { history, shopAdminSubdomain, createdOrderName };
 };
 
 /**
@@ -863,7 +822,7 @@ export const action = async ({ request }) => {
 };
 
 export default function ImportOrdersIndex() {
-  const { history, customers, shopAdminSubdomain, createdOrderName } = useLoaderData();
+  const { history, shopAdminSubdomain, createdOrderName } = useLoaderData();
   const actionData = useActionData();
   const navigation = useNavigation();
 
@@ -885,6 +844,10 @@ export default function ImportOrdersIndex() {
   const [customerQuery, setCustomerQuery] = useState(actionData?.customerName || "");
   const [selectedCustomerId, setSelectedCustomerId] = useState(actionData?.customerId || "");
   const [customerOptions, setCustomerOptions] = useState([]);
+  const customerFetcher = useFetcher();
+  const customerSearchTimer = useRef(null);
+  // Latest query sent, so late responses for an older query are ignored.
+  const lastCustomerSearch = useRef("");
 
   const [previewCancelled, setPreviewCancelled] = useState(false);
   const fileInputRef = useRef(null);
@@ -907,6 +870,7 @@ export default function ImportOrdersIndex() {
       setCustomerQuery("");
       setSelectedCustomerId("");
       setCustomerOptions([]);
+      lastCustomerSearch.current = "";
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -935,24 +899,33 @@ export default function ImportOrdersIndex() {
     setCustomerQuery(value);
     setSelectedCustomerId("");
 
-    const trimmed = value.trim().toLowerCase();
-    if (!trimmed) {
+    clearTimeout(customerSearchTimer.current);
+    const trimmed = value.trim();
+    if (trimmed.length < 2) {
+      lastCustomerSearch.current = "";
       setCustomerOptions([]);
       return;
     }
 
-    const matches = (customers || [])
-      .filter((customer) => {
-        const name = (customer.displayName || "").toLowerCase();
-        const email = (customer.email || "").toLowerCase();
-        return name.includes(trimmed) || (email && email.includes(trimmed));
-      })
-      .slice(0, 10);
-
-    setCustomerOptions(matches);
+    // Debounced live search against Shopify customers + companies.
+    customerSearchTimer.current = setTimeout(() => {
+      lastCustomerSearch.current = trimmed;
+      customerFetcher.load(`/app/customers?q=${encodeURIComponent(trimmed)}`);
+    }, 250);
   };
 
+  // Show search results when they arrive (unless a customer was picked since).
+  useEffect(() => {
+    if (customerFetcher.state !== "idle" || !customerFetcher.data) return;
+    if (!lastCustomerSearch.current || selectedCustomerId) return;
+    setCustomerOptions(customerFetcher.data.customers || []);
+  }, [customerFetcher.state, customerFetcher.data, selectedCustomerId]);
+
+  useEffect(() => () => clearTimeout(customerSearchTimer.current), []);
+
   const handleCustomerSelect = (customer) => {
+    clearTimeout(customerSearchTimer.current);
+    lastCustomerSearch.current = "";
     setSelectedCustomerId(customer.id);
     setCustomerQuery(customer.displayName || "");
     setCustomerOptions([]);
@@ -963,6 +936,7 @@ export default function ImportOrdersIndex() {
     setCustomerQuery("");
     setSelectedCustomerId("");
     setCustomerOptions([]);
+    lastCustomerSearch.current = "";
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -1201,6 +1175,18 @@ export default function ImportOrdersIndex() {
 
                   <input type="hidden" name="customerId" value={selectedCustomerId} />
 
+                  {!selectedCustomerId && customerQuery.trim().length >= 2 && customerOptions.length === 0 && (
+                    <div style={{ marginTop: "4px", fontSize: "12px", color: "#6d7175" }}>
+                      {customerFetcher.state !== "idle"
+                        ? "Searching…"
+                        : customerFetcher.data?.error
+                          ? "Customer search failed. Please try again."
+                          : lastCustomerSearch.current
+                            ? "No customers found."
+                            : ""}
+                    </div>
+                  )}
+
                   {customerOptions.length > 0 && (
                     <div
                       style={{
@@ -1232,9 +1218,9 @@ export default function ImportOrdersIndex() {
                           <div style={{ fontSize: "14px", fontWeight: 500 }}>
                             {customer.displayName}
                           </div>
-                          {customer.email && (
+                          {(customer.companyName || customer.email) && (
                             <div style={{ fontSize: "12px", color: "#6d7175", marginTop: "2px" }}>
-                              {customer.email}
+                              {[customer.companyName, customer.email].filter(Boolean).join(" · ")}
                             </div>
                           )}
                         </div>
