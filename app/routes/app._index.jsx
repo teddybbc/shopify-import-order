@@ -145,15 +145,146 @@ async function getB2BContext(admin, customerGid) {
   }
 }
 
-// OC backend endpoint that extracts SKU/quantity pairs from PDF, image, Word or
-// pasted text using Claude (mirrors the storefront upload.php ai_extract).
-const OC_AI_EXTRACT_URL =
-  "https://dev.bloomandgrowgroup.com/index.php?route=bloom/import_order/ai_extract";
+/**
+ * Create the draft order in Shopify (replaces the retired OpenCart
+ * DraftOrderCreate). B2B customers get the company as purchasing entity, so
+ * catalog prices apply; then the company location's payment terms are added
+ * in a second step. If only the terms step fails, the draft is kept and a
+ * warning is returned instead of an error.
+ */
+async function createDraftOrder(
+  admin,
+  { customerGid, lineItems, note, companyId, companyContactId, companyLocationId },
+) {
+  const isB2B = !!(companyId && companyContactId && companyLocationId);
+
+  const input = {
+    lineItems,
+    note,
+    sourceName: "Import Order App",
+    purchasingEntity: isB2B
+      ? {
+          purchasingCompany: { companyId, companyContactId, companyLocationId },
+        }
+      : { customerId: customerGid },
+  };
+
+  const createResp = await admin.graphql(
+    `#graphql
+    mutation ImportOrderDraftCreate($input: DraftOrderInput!) {
+      draftOrderCreate(input: $input) {
+        draftOrder {
+          id
+          legacyResourceId
+          name
+          purchasingEntity { __typename }
+        }
+        userErrors { field message }
+      }
+    }`,
+    { variables: { input } },
+  );
+  const createJson = await createResp.json();
+
+  if (createJson.errors?.length) {
+    console.error("draftOrderCreate GraphQL errors:", createJson.errors);
+    throw new Error(createJson.errors.map((e) => e.message).join("; "));
+  }
+  const userErrors = createJson?.data?.draftOrderCreate?.userErrors || [];
+  if (userErrors.length) {
+    console.error("draftOrderCreate userErrors:", userErrors);
+    throw new Error(userErrors.map((e) => e.message).join("; "));
+  }
+  const draftOrder = createJson?.data?.draftOrderCreate?.draftOrder;
+  if (!draftOrder?.id) {
+    throw new Error("Shopify did not return a draft order.");
+  }
+
+  let paymentTermsWarning = "";
+  if (isB2B) {
+    try {
+      paymentTermsWarning = await applyLocationPaymentTerms(
+        admin,
+        draftOrder.id,
+        companyLocationId,
+      );
+    } catch (err) {
+      console.error("Applying payment terms failed:", err);
+      paymentTermsWarning = err.message || "unknown error";
+    }
+  }
+
+  return { draftOrder, paymentTermsWarning };
+}
 
 /**
- * fetch() to the OC backend with retries. The Cloudflare-fronted host
- * intermittently drops the HTTP/2 connection with a GOAWAY frame, which
- * undici surfaces as "fetch failed". A retry on a fresh connection recovers.
+ * Copy the company location's payment terms template (e.g. Net 30) onto the
+ * draft order. Returns "" on success or when the location has no terms, or a
+ * short warning message when Shopify refused the update.
+ */
+async function applyLocationPaymentTerms(admin, draftOrderId, companyLocationId) {
+  const termsResp = await admin.graphql(
+    `#graphql
+    query LocationPaymentTerms($id: ID!) {
+      companyLocation(id: $id) {
+        buyerExperienceConfiguration {
+          paymentTermsTemplate { id paymentTermsType }
+        }
+      }
+    }`,
+    { variables: { id: companyLocationId } },
+  );
+  const termsJson = await termsResp.json();
+  const template =
+    termsJson?.data?.companyLocation?.buyerExperienceConfiguration
+      ?.paymentTermsTemplate;
+  if (!template?.id) return "";
+
+  // Net terms need an issue date (Shopify derives the due date from it).
+  // Receipt / fulfillment terms take no schedule.
+  const paymentTerms = { paymentTermsTemplateId: template.id };
+  if (template.paymentTermsType === "NET") {
+    paymentTerms.paymentSchedules = [{ issuedAt: new Date().toISOString() }];
+  }
+
+  const updateResp = await admin.graphql(
+    `#graphql
+    mutation ImportOrderDraftTerms($id: ID!, $input: DraftOrderInput!) {
+      draftOrderUpdate(id: $id, input: $input) {
+        draftOrder { id }
+        userErrors { field message }
+      }
+    }`,
+    {
+      variables: {
+        id: draftOrderId,
+        input: {
+          paymentTerms,
+        },
+      },
+    },
+  );
+  const updateJson = await updateResp.json();
+  const errors = [
+    ...(updateJson.errors || []),
+    ...(updateJson?.data?.draftOrderUpdate?.userErrors || []),
+  ];
+  if (errors.length) {
+    console.error("draftOrderUpdate (payment terms) errors:", errors);
+    return errors.map((e) => e.message).join("; ");
+  }
+  return "";
+}
+
+// Seller app endpoint that extracts SKU/quantity pairs from PDF, image, Word or
+// pasted text using Claude. Same endpoint the Bloom Connect smart order page
+// uses (moved off the retired dev.bloomandgrowgroup.com on 6 Nov 2026).
+const AI_EXTRACT_URL =
+  "https://sellerapp.bloomandgrowgroup.com/api/bloom/smart-order/extract";
+
+/**
+ * fetch() with retries on transport errors ("fetch failed"), e.g. a dropped
+ * HTTP/2 connection. A retry on a fresh connection usually recovers.
  */
 async function ocFetch(url, options, retries = 2) {
   let lastErr;
@@ -281,7 +412,7 @@ async function parseSpreadsheet(file) {
 }
 
 /**
- * Send a PDF/image/Word file and/or pasted text to the OC AI extractor and
+ * Send a PDF/image/Word file and/or pasted text to the AI extractor and
  * normalise the response into preview rows. Throws on transport/service error.
  */
 async function extractRowsWithAI({ file, orderText }) {
@@ -289,7 +420,7 @@ async function extractRowsWithAI({ file, orderText }) {
   if (file) aiForm.append("file", file, file.name);
   if (orderText) aiForm.append("order_text", orderText);
 
-  const resp = await ocFetch(OC_AI_EXTRACT_URL, {
+  const resp = await ocFetch(AI_EXTRACT_URL, {
     method: "POST",
     body: aiForm,
   });
@@ -409,6 +540,7 @@ export const loader = async ({ request }) => {
 
   const url = new URL(request.url);
   const createdOrderName = url.searchParams.get("createdOrderName") || null;
+  const termsWarning = url.searchParams.get("termsWarning") || null;
 
   const shopDomain = session?.shop || "";
   const shopAdminSubdomain = shopDomain.replace(".myshopify.com", "");
@@ -451,7 +583,7 @@ export const loader = async ({ request }) => {
     console.warn("No shopNumericId resolved in loader; skipping history query.");
   }
 
-  return { history, shopAdminSubdomain, createdOrderName };
+  return { history, shopAdminSubdomain, createdOrderName, termsWarning };
 };
 
 /**
@@ -705,7 +837,7 @@ export const action = async ({ request }) => {
 
     const note = `Bulk upload for customer: ${customerName} (Shopify customer ID: ${customerNumericId})`;
 
-    console.log("CREATE intent: preparing OC DraftOrderCreate payload:", {
+    console.log("CREATE intent: creating draft order:", {
       shopNumericId,
       customerGid,
       customerName,
@@ -717,70 +849,26 @@ export const action = async ({ request }) => {
     });
 
     let draftOrder = null;
+    let paymentTermsWarning = "";
 
     try {
-      const ocResp = await ocFetch(
-        "https://dev.bloomandgrowgroup.com/index.php?route=bloom/import_order/DraftOrderCreate",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            shop_id: shopNumericId,
-            customerId: customerGid,
-            customerName: customerName,
-            lineItems,
-            note,
-            totalQuantity,
-            companyId,
-            companyLocationId,
-            companyContactId,
-          }),
-        },
-      );
-
-      if (!ocResp.ok) {
-        const debugText = await ocResp.text();
-        console.error("OC DraftOrderCreate HTTP error:", ocResp.status, ocResp.statusText, debugText);
-        throw new Error(`OC HTTP error ${ocResp.status} ${ocResp.statusText}`);
-      }
-
-      let ocJson = null;
-      try {
-        ocJson = await ocResp.json();
-      } catch (e) {
-        console.error("OC DraftOrderCreate: failed to parse JSON", e);
-        throw new Error("OC DraftOrderCreate: invalid JSON response");
-      }
-
-      console.log("OC DraftOrderCreate raw response:", ocJson);
-
-      if (!ocJson || !ocJson.success || !ocJson.draftOrder) {
-        console.error("OC DraftOrderCreate: invalid or unsuccessful response", ocJson);
-        throw new Error(ocJson?.error || "Invalid response from Shopify GraphQL");
-      }
-
-      draftOrder = ocJson.draftOrder;
+      const result = await createDraftOrder(admin, {
+        customerGid,
+        lineItems,
+        note,
+        companyId,
+        companyContactId,
+        companyLocationId,
+      });
+      draftOrder = result.draftOrder;
+      paymentTermsWarning = result.paymentTermsWarning;
     } catch (err) {
-      console.error("Error calling OC DraftOrderCreate:", err);
+      console.error("Error creating draft order:", err);
       return {
         mode: "error",
         error:
-          "Failed to create draft order via external service. " +
+          "Failed to create the draft order. " +
           (err.message || "Please check the uploaded data."),
-        customerName,
-        customerId: customerIdRaw,
-        previewRows,
-      };
-    }
-
-    if (!draftOrder) {
-      console.error("CREATE intent: draftOrder is null after OC call");
-      return {
-        mode: "error",
-        error:
-          "Failed to create draft order via external service. Please check the uploaded data.",
         customerName,
         customerId: customerIdRaw,
         previewRows,
@@ -791,7 +879,7 @@ export const action = async ({ request }) => {
     const realOrderLegacyId = draftOrder.legacyResourceId || "";
     const realOrderName = draftOrder.name || "";
 
-    console.log("Draft order created (via OC):", {
+    console.log("Draft order created:", {
       id: realOrderId,
       legacyId: realOrderLegacyId,
       name: realOrderName,
@@ -814,15 +902,19 @@ export const action = async ({ request }) => {
       console.error("Error saving bulk upload to Prisma", dbErr);
     }
 
-    const createdOrderNameParam = encodeURIComponent(realOrderName || realOrderLegacyId || realOrderId);
-    return redirect(`/app?createdOrderName=${createdOrderNameParam}`);
+    const params = new URLSearchParams({
+      createdOrderName: realOrderName || realOrderLegacyId || realOrderId,
+    });
+    if (paymentTermsWarning) params.set("termsWarning", paymentTermsWarning);
+    return redirect(`/app?${params.toString()}`);
   }
 
   return { mode: "idle" };
 };
 
 export default function ImportOrdersIndex() {
-  const { history, shopAdminSubdomain, createdOrderName } = useLoaderData();
+  const { history, shopAdminSubdomain, createdOrderName, termsWarning } =
+    useLoaderData();
   const actionData = useActionData();
   const navigation = useNavigation();
 
@@ -1623,6 +1715,22 @@ export default function ImportOrdersIndex() {
                 }}
               >
                 The draft order {createdOrderName} has been successfully created.
+              </div>
+            )}
+
+            {hasSuccess && termsWarning && (
+              <div
+                style={{
+                  color: "#856404",
+                  backgroundColor: "#fff3cd",
+                  border: "1px solid #ffeeba",
+                  padding: "10px",
+                  marginBottom: "10px",
+                  borderRadius: "6px",
+                }}
+              >
+                Payment terms could not be added to {createdOrderName}. Please set
+                them on the draft order in Shopify. ({termsWarning})
               </div>
             )}
 
